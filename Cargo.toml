@@ -1,7 +1,9 @@
 [package]
 name = "local_jira"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 authors = [ "Samuel Da Mota <da.mota.sam@gmail.com>" ]
 
 [dependencies]
+serde = { version = "1.0.197", features = ["derive"] }
+toml = "0.8.12"
