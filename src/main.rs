@@ -1,16 +1,11 @@
-use std::cmp::max;
 use std::ffi::OsStr;
-use std::fmt::format;
-use std::num::ParseIntError;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
+
 use base64::Engine;
-use serde_json::{json, Value};
 use sqlx;
-use log::error;
-use sqlx::{Error, Execute, Executor, Pool, Sqlite, SqlitePool, Statement};
+use sqlx::{Execute, Executor, Pool, Sqlite, SqlitePool, Statement};
 use sqlx::migrate::MigrateDatabase;
-use sqlx::sqlite::SqliteQueryResult;
 
 use crate::get_config::{Config, get_config};
 

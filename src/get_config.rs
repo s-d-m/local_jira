@@ -1,10 +1,8 @@
-use std::env::VarError;
-use std::ffi::OsStr;
-use std::fmt::{Display, Formatter};
-use std::os::unix::ffi::OsStrExt;
-use std::path::{Component, Path, PathBuf};
+use std::fmt::Display;
+use std::path::PathBuf;
+
 use serde::Deserialize;
-use toml::de::Error;
+
 use crate::defaults;
 
 #[derive(Deserialize)]
