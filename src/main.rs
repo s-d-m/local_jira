@@ -1,10 +1,12 @@
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
+use std::hash::{DefaultHasher, Hash};
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
 use base64::Engine;
 use sqlx;
-use sqlx::{Execute, Executor, Pool, Sqlite, SqlitePool, Statement};
+use sqlx::{Error, Execute, Executor, FromRow, Pool, Sqlite, SqlitePool, Statement};
 use sqlx::migrate::MigrateDatabase;
 
 use crate::get_config::{Config, get_config};
@@ -37,7 +39,7 @@ async fn init_db(db_path: &std::path::PathBuf) -> Result<Pool<Sqlite>, String> {
     Ok(db)
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 struct ProjectShortData {
     key: String,
     jira_id: u32,
@@ -146,7 +148,72 @@ async fn get_projects_from_server(conf: &Config) -> Result<Vec<ProjectShortData>
     Ok(res)
 }
 
+#[derive(FromRow)]
+struct ProjectShortDataSQL {
+    key: String,
+    jira_id: u32,
+    name: String,
+    displayName: Option<String>,
+    accountId: Option<String>,
+}
+
+async fn get_projects_from_db(db_conn: &Pool<Sqlite>) -> Vec<ProjectShortData> {
+    let query_str =
+        "SELECT  projects.key, projects.jira_id, projects.name, people.accountId, people.displayName
+         FROM projects
+         JOIN people on people.accountId = projects.lead_id;";
+
+    let rows = sqlx::query_as::<_, ProjectShortDataSQL>(query_str)
+        .fetch_all(db_conn)
+        .await;
+
+    match rows {
+        Ok(data) => {
+            data.into_iter().map(|x| {
+                ProjectShortData {
+                    key: x.key,
+                    jira_id: x.jira_id,
+                    name: x.name,
+                    lead_name: x.displayName,
+                    lead_id: x.accountId,
+                }
+            }).collect()
+        }
+        Err(e) => {
+            eprintln!("Error occurred while trying to get projects from local database: {e}");
+            Vec::new()
+        }
+    }
+}
+
+fn get_projects_not_in_db<'a, 'b>(projects: &'a Vec<ProjectShortData>, projects_in_db: &'b Vec<ProjectShortData>)
+-> Vec<&'a ProjectShortData>
+    where 'b: 'a
+{
+    // use hash tables to avoid quadratic algorithm
+    // todo(perf) use faster hasher. We don't need the security from SIP
+    let to_hash_set = |x: &'a Vec<ProjectShortData>| {
+        x
+            .iter()
+            .collect::<HashSet<&'a ProjectShortData>>()
+    };
+    let projects_in_db = to_hash_set(projects_in_db);
+    let projects = to_hash_set(projects);
+
+    let res = projects.difference(&projects_in_db)
+        .map(|x| *x)
+        .collect::<Vec<_>>();
+    res
+}
+
 async fn update_db_with_projects(projects: &Vec<ProjectShortData>, db_conn: &Pool<Sqlite>) {
+    // avoid taking write locks on the db if there is nothing to update
+    let projects_in_db = get_projects_from_db(db_conn).await;
+    let projects_to_insert = get_projects_not_in_db(projects, &projects_in_db);
+
+
+    let projects = projects_to_insert;
+
     let people = projects
         .iter()
         .filter_map(|x| match (&x.lead_id, &x.lead_name) {
@@ -173,7 +240,7 @@ async fn update_db_with_projects(projects: &Vec<ProjectShortData>, db_conn: &Poo
         .await
         .expect("Error when starting a sql transaction");
 
-    // todo: these insert are likely very inefficient since we insert
+    // todo(perf): these insert are likely very inefficient since we insert
     // one element at a time instead of doing bulk insert.
     // check https://stackoverflow.com/questions/65789938/rusqlite-insert-multiple-rows
     // and https://www.sqlite.org/c3ref/c_limit_attached.html#sqlitelimitvariablenumber
@@ -234,8 +301,8 @@ async fn update_db_with_projects(projects: &Vec<ProjectShortData>, db_conn: &Poo
     } else {
         println!("updated projects in database: {row_affected} rows were updated")
     }
-
 }
+
 
 #[tokio::main]
 pub async fn main() {
