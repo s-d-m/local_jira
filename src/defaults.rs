@@ -14,4 +14,7 @@ api_token = "<API TOKEN>" # see jira documentation to find out how to export it
 # in the same folder as the configuration file.
 local_database = "path to the database file"
 
+# List of jira project keys you are interesting in. This is the name part in the jira ticket
+# numbers. E.g. for a jira ticket COMPANYPROJECT-1234, the project key is COMPANYPROJECT
+interesting_projects = [ "PRJKEYONE", "PRJKEYTWO", "PRJKEYTHREE" ]
 "##;

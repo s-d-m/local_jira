@@ -18,4 +18,9 @@ CREATE TABLE IF NOT EXISTS projects (
 
 CREATE INDEX IF NOT EXISTS projects_key ON projects(key);
 
+CREATE TABLE IF NOT EXISTS fields_name (
+  jira_field_name TEXT PRIMARY KEY NOT NULL,
+  human_name TEXT NOT NULL
+);
+
 COMMIT;

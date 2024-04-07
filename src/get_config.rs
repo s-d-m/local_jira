@@ -1,5 +1,6 @@
 use std::fmt::Display;
 use std::path::PathBuf;
+use base64::Engine;
 
 use serde::Deserialize;
 
@@ -11,29 +12,18 @@ struct FileOnDiskConfig {
     user_login: String, // likely email address
     api_token: Option<String>, // taken from environment variable when not passed.
     local_database: Option<std::path::PathBuf>,
+    interesting_projects: Option<Vec<String>>,
 }
 
-impl FileOnDiskConfig {
-    pub fn server_address(&self) -> &str {
-        &self.server_address
-    }
-    pub fn user_login(&self) -> &str {
-        &self.user_login
-    }
-    pub fn api_token(&self) -> &Option<String> {
-        &self.api_token
-    }
-    pub fn local_database(&self) -> &Option<std::path::PathBuf> {
-        &self.local_database
-    }
-}
 
 #[derive(Debug)]
 pub(crate) struct Config {
     server_address: String,
     user_login: String, // likely email address
     api_token: String, // taken from environment variable when not passed.
+    auth_token: String, // derived from user_login and api_token
     local_database: std::path::PathBuf,
+    interesting_projects: Vec<String>,
 }
 
 impl Config {
@@ -48,6 +38,12 @@ impl Config {
     }
     pub fn local_database(&self) -> &std::path::PathBuf {
         &self.local_database
+    }
+    pub fn interesting_projects(&self) -> &Vec<String> {
+        &self.interesting_projects
+    }
+    pub fn auth_token(&self) -> &str {
+        &self.auth_token
     }
 }
 
@@ -89,11 +85,22 @@ pub(crate) fn get_config(filepath: &std::path::Path) -> Result<Config, String> {
         Some(v) => { v }
     };
 
+    let interesting_projects = match conf.interesting_projects {
+        None => Vec::new(),
+        Some(x) => {x}
+    };
+
+    let server_address = conf.server_address;
+    let user_login = conf.user_login;
+    let auth_token = base64::engine::general_purpose::STANDARD.encode(format!("{user_login}:{api_token}").as_str());
+
     let conf = Config {
-        server_address: conf.server_address,
-        user_login: conf.user_login,
+        server_address,
+        user_login,
         api_token,
         local_database,
+        interesting_projects,
+        auth_token
     };
 
     Ok(conf)
