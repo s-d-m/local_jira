@@ -59,7 +59,7 @@ fn get_fields_not_in_db<'a, 'b>(fields: &'a [(String, String)], fields_in_db: &'
 }
 
 #[derive(FromRow, Debug)]
-struct fields_in_db {
+pub(crate) struct fields_in_db {
     jira_field_name: String,
     human_name: String,
 }
@@ -155,6 +155,7 @@ pub(crate) async fn update_db_with_interesting_projects(config: &Config, db_conn
         if let Ok(fields) = fields {
             update_db_with_field_names(&fields, db_conn).await;
         }
+
     }
 }
 

@@ -1,19 +1,16 @@
-use crate::manage_project_table::update_db_with_projects;
-use crate::manage_project_table::get_projects_from_server;
-use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
-use std::hash::{DefaultHasher, Hash};
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
 use base64::Engine;
 use sqlx;
-use sqlx::{Error, Execute, Executor, FromRow, Pool, Sqlite, SqlitePool, Statement};
+use sqlx::{Execute, Executor, FromRow, Pool, Sqlite, SqlitePool, Statement};
 use sqlx::migrate::MigrateDatabase;
 
-use crate::get_config::{Config, get_config};
+use crate::get_config::get_config;
 use crate::manage_field_name_table::update_db_with_interesting_projects;
-
+use crate::manage_project_table::get_projects_from_server;
+use crate::manage_project_table::update_db_with_projects;
 
 mod get_config;
 mod defaults;
