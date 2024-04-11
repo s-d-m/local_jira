@@ -8,9 +8,9 @@ use sqlx::{Execute, Executor, FromRow, Pool, Sqlite, SqlitePool, Statement};
 use sqlx::migrate::MigrateDatabase;
 
 use crate::get_config::get_config;
-use crate::manage_field_name_table::update_db_with_interesting_projects;
-use crate::manage_project_table::get_projects_from_server;
-use crate::manage_project_table::update_db_with_projects;
+use crate::manage_field_name_table::update_interesting_projects_in_db;
+use crate::manage_project_table::get_project_list_from_server;
+use crate::manage_project_table::update_project_list_in_db;
 
 mod get_config;
 mod defaults;
@@ -83,16 +83,16 @@ pub async fn main() {
 
     let update_project_list = false;
     if update_project_list {
-        let projects = get_projects_from_server(&config).await;
-        let projects = match projects {
+        let project_list = get_project_list_from_server(&config).await;
+        let project_list = match project_list {
             Ok(a) => { a }
             Err(e) => {
                 eprintln!(" failed to get projects {e}");
                 return;
             }
         };
-        update_db_with_projects(&projects, &mut db).await;
+        update_project_list_in_db(&project_list, &mut db).await;
     }
 
-    update_db_with_interesting_projects(&config, &mut db).await;
+    update_interesting_projects_in_db(&config, &mut db).await;
 }

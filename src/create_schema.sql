@@ -23,17 +23,17 @@ CREATE TABLE IF NOT EXISTS fields_name (
   human_name TEXT NOT NULL                   -- like country / vendor / supplier...
 );
 
-CREATE TABLE IF NOT EXISTS issue_type (
+CREATE TABLE IF NOT EXISTS IssueType (
    jira_id INTEGER UNIQUE PRIMARY KEY NOT NULL,
-   name TEXT NOT NULL,
+   name TEXT UNIQUE NOT NULL,
    description TEXT
 );
 
 CREATE TABLE IF NOT EXISTS issue (
    jira_id INTEGER UNIQUE PRIMARY KEY NOT NULL,
    key TEXT UNIQUE NOT NULL,  -- something like COMPANYPROJ-1234
-   issue_type INTEGER,
-   FOREIGN KEY (issue_type) REFERENCES issue_type(jira_id)
+   IssueType INTEGER,
+   FOREIGN KEY (IssueType) REFERENCES IssueType(jira_id)
 );
 
 CREATE TABLE IF NOT EXISTS link_type (

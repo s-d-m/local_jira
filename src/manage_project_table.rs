@@ -14,7 +14,7 @@ pub struct ProjectShortData {
     lead_id: Option<String>,
 }
 
-pub(crate) async fn get_projects_from_server(conf: &Config) -> Result<Vec<ProjectShortData>, String> {
+pub(crate) async fn get_project_list_from_server(conf: &Config) -> Result<Vec<ProjectShortData>, String> {
     let query = "/rest/api/2/project?expand=lead";
     let json_data = get_json_from_url(conf, query).await;
     let Ok(json_data) = json_data else {
@@ -134,7 +134,7 @@ fn get_projects_not_in_db<'a, 'b>(projects: &'a Vec<ProjectShortData>, projects_
     res
 }
 
-pub(crate) async fn update_db_with_projects(projects: &Vec<ProjectShortData>, db_conn: &Pool<Sqlite>) {
+pub(crate) async fn update_project_list_in_db(projects: &Vec<ProjectShortData>, db_conn: &Pool<Sqlite>) {
     if projects.is_empty() {
         // no need to query the db to find out that there won't be any project to insert there
         return;
