@@ -29,11 +29,9 @@ CREATE TABLE IF NOT EXISTS IssueType (
    description TEXT
 );
 
-CREATE TABLE IF NOT EXISTS issue (
+CREATE TABLE IF NOT EXISTS Issue (
    jira_id INTEGER UNIQUE PRIMARY KEY NOT NULL,
-   key TEXT UNIQUE NOT NULL,  -- something like COMPANYPROJ-1234
-   IssueType INTEGER,
-   FOREIGN KEY (IssueType) REFERENCES IssueType(jira_id)
+   key TEXT UNIQUE NOT NULL  -- something like COMPANYPROJ-1234
 );
 
 CREATE TABLE IF NOT EXISTS link_type (
@@ -50,16 +48,16 @@ CREATE TABLE IF NOT EXISTS issuelink (
     outward_link INTEGER,
     inward_link INTEGER,
     FOREIGN KEY(link_type_id) REFERENCES link_type(jira_id),
-    FOREIGN KEY(outward_link) REFERENCES issue(jira_id),
-    FOREIGN KEY(inward_link) REFERENCES issue(jira_id),
+    FOREIGN KEY(outward_link) REFERENCES Issue(jira_id),
+    FOREIGN KEY(inward_link) REFERENCES Issue(jira_id),
     CHECK (outward_link != inward_link)
 );
 
 CREATE TABLE IF NOT EXISTS watcher (
     person TEXT,
-    issue INTEGER,
+    Issue INTEGER,
     FOREIGN KEY (person) REFERENCES people(accountId),
-    FOREIGN KEY (issue) REFERENCES issue(jira_id)
+    FOREIGN KEY (Issue) REFERENCES Issue(jira_id)
 );
 
 COMMIT;
