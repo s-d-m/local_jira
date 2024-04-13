@@ -7,8 +7,10 @@ use sqlx;
 use sqlx::{Execute, Executor, FromRow, Pool, Sqlite, SqlitePool, Statement};
 use sqlx::migrate::MigrateDatabase;
 
-use crate::get_config::get_config;
+use crate::get_config::{Config, get_config};
 use crate::manage_field_name_table::update_interesting_projects_in_db;
+use crate::manage_field_table::update_fields_in_db;
+use crate::manage_linktype_table::update_issue_link_types_in_db;
 use crate::manage_project_table::get_project_list_from_server;
 use crate::manage_project_table::update_project_list_in_db;
 
@@ -18,6 +20,9 @@ mod manage_project_table;
 mod manage_field_name_table;
 mod get_project_tasks_from_server;
 mod get_json_from_url;
+mod manage_linktype_table;
+mod manage_field_table;
+mod utils;
 
 
 async fn init_db(db_path: &std::path::PathBuf) -> Result<Pool<Sqlite>, String> {
@@ -94,5 +99,7 @@ pub async fn main() {
         update_project_list_in_db(&project_list, &mut db).await;
     }
 
+    update_fields_in_db(&config, &mut db).await;
+    update_issue_link_types_in_db(&config, &mut db).await;
     update_interesting_projects_in_db(&config, &mut db).await;
 }

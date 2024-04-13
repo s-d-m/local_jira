@@ -14,6 +14,10 @@ pub struct ProjectShortData {
     lead_id: Option<String>,
 }
 
+// should give some ideas
+// https://docs.atlassian.com/software/jira/docs/api/REST/9.14.0/#api/2
+// https://github.com/atlassian-api/atlassian-python-api/blob/master/atlassian/jira.py#L1865
+
 pub(crate) async fn get_project_list_from_server(conf: &Config) -> Result<Vec<ProjectShortData>, String> {
     let query = "/rest/api/2/project?expand=lead";
     let json_data = get_json_from_url(conf, query).await;

@@ -18,9 +18,12 @@ CREATE TABLE IF NOT EXISTS projects (
 
 CREATE INDEX IF NOT EXISTS projects_key ON projects(key);
 
-CREATE TABLE IF NOT EXISTS fields_name (
-  jira_field_name TEXT UNIQUE PRIMARY KEY NOT NULL, -- like customfield_12345
-  human_name TEXT NOT NULL                   -- like country / vendor / supplier...
+CREATE TABLE IF NOT EXISTS Field (
+  jira_id TEXT UNIQUE PRIMARY KEY NOT NULL, -- like customfield_12345
+  key TEXT NOT NULL,
+  human_name TEXT NOT NULL,                   -- like country / vendor / supplier...
+  schema TEXT NOT NULL,
+  is_custom INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS IssueType (
@@ -34,7 +37,7 @@ CREATE TABLE IF NOT EXISTS Issue (
    key TEXT UNIQUE NOT NULL  -- something like COMPANYPROJ-1234
 );
 
-CREATE TABLE IF NOT EXISTS link_type (
+CREATE TABLE IF NOT EXISTS LinkType (
    jira_id INTEGER UNIQUE PRIMARY KEY NOT NULL,
    name TEXT NOT NULL,
    outward_name TEXT NOT NULL,
@@ -47,7 +50,7 @@ CREATE TABLE IF NOT EXISTS issuelink (
     link_type_id INTEGER,
     outward_link INTEGER,
     inward_link INTEGER,
-    FOREIGN KEY(link_type_id) REFERENCES link_type(jira_id),
+    FOREIGN KEY(link_type_id) REFERENCES LinkType(jira_id),
     FOREIGN KEY(outward_link) REFERENCES Issue(jira_id),
     FOREIGN KEY(inward_link) REFERENCES Issue(jira_id),
     CHECK (outward_link != inward_link)

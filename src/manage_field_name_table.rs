@@ -41,7 +41,7 @@ fn get_fields_from_json<'a>(json_value: &Result<Value, String>) -> Result<Vec<(S
 #[derive(FromRow, Hash, PartialEq, Eq, Debug)]
 struct Issue {
   jira_id: u32,
-  name: String
+  key: String
 }
 
 fn get_issues_from_json(json_value: Result<Value, String>) -> Result<Vec<Issue>, String> {
@@ -73,7 +73,7 @@ fn get_issues_from_json(json_value: Result<Value, String>) -> Result<Vec<Issue>,
       let Ok(jira_id) = jira_id.parse::<u32>() else {
         return None;
       };
-      Some(Issue { jira_id, name: key.to_string() })
+      Some(Issue { jira_id, key: key.to_string() })
     })
     .collect::<Vec<_>>();
 
@@ -81,7 +81,7 @@ fn get_issues_from_json(json_value: Result<Value, String>) -> Result<Vec<Issue>,
 }
 
 #[derive(FromRow, Hash, PartialEq, Eq, Debug)]
-struct IssueType {
+pub(crate) struct IssueType {
   jira_id: u32,
   name: String,
   description: String,
@@ -134,6 +134,9 @@ fn get_all_unique<'a>(json_value: &'a Value, searched_key: &str) -> (Vec<&'a Val
 }
 
 fn get_all_issue_type(json_value: &JsonValue) -> Vec<IssueType> {
+  // following request returns all issuetypes in project
+  // /rest/api/2/issue/createmeta/{project}/issuetypes
+  
   let res = get_all_unique(json_value, "issuetype");
   let res = res.0;
 //  dbg!(&res);
@@ -200,7 +203,7 @@ async fn get_issues_from_db(db_conn: &Pool<Sqlite>) -> Result<Vec<Issue>, String
   })
 }
 
-async fn get_issue_type_from_db(db_conn: &Pool<Sqlite>) -> Result<Vec<IssueType>, String> {
+pub async fn get_issue_type_from_db(db_conn: &Pool<Sqlite>) -> Result<Vec<IssueType>, String> {
   let query_str =
     "SELECT  jira_id, name, description
      FROM IssueType;";
@@ -242,20 +245,6 @@ pub(crate) struct fields_in_db {
   human_name: String,
 }
 
-pub(crate) async fn get_fields_from_db(db_conn: &Pool<Sqlite>) -> Vec<fields_in_db> {
-  let query_str =
-    "SELECT  jira_field_name, human_name
-         FROM fields_name;";
-
-  let rows = sqlx::query_as::<_, fields_in_db>(query_str)
-    .fetch_all(db_conn)
-    .await;
-
-  rows.unwrap_or_else(|e| {
-    eprintln!("Error occurred while trying to get projects from local database: {e}");
-    Vec::new()
-  })
-}
 
 async fn update_issues_in_db(issues_to_insert: &Vec<Issue>, db_conn: &mut Pool<Sqlite>) {
   let issues_in_db = get_issues_from_db(&db_conn).await;
@@ -299,7 +288,7 @@ async fn update_issues_in_db(issues_to_insert: &Vec<Issue>, db_conn: &mut Pool<S
             ON CONFLICT DO
             UPDATE SET key = excluded.key";
 
-  for Issue { jira_id, name: key } in issues_to_insert {
+  for Issue { jira_id, key: key } in issues_to_insert {
     let res = sqlx::query(query_str)
       .bind(jira_id)
       .bind(key)
@@ -391,81 +380,10 @@ async fn update_issue_types_in_db(issue_types_to_insert: &Vec<IssueType>, db_con
 }
 
 
-pub(crate) async fn update_field_names_in_db(fields: &[(String, String)], db_conn: &Pool<Sqlite>) {
-  if fields.is_empty() {
-    // no need to query the db to find out that there won't be any project to insert there
-    return;
-  }
-
-  // avoid taking write locks on the db if there is nothing to update
-  let fields_in_db = get_fields_from_db(db_conn).await;
-  let fields_in_db = fields_in_db
-    .into_iter()
-    .map(|x| (x.jira_field_name.clone(), x.human_name.clone()))
-    .collect::<Vec<_>>();
-
-  let fields_to_insert = get_fields_not_in_db(fields, &fields_in_db);
-
-  // dbg!(&fields_to_insert);
-  // dbg!(&fields_in_db);
-
-
-  if fields_to_insert.is_empty() {
-    return;
-  }
-
-  let mut has_error = false;
-  let mut row_affected = 0;
-  let mut tx = db_conn
-    .begin()
-    .await
-    .expect("Error when starting a sql transaction");
-
-  // todo(perf): these insert are likely very inefficient since we insert
-  // one element at a time instead of doing bulk insert.
-  // check https://stackoverflow.com/questions/65789938/rusqlite-insert-multiple-rows
-  // and https://www.sqlite.org/c3ref/c_limit_attached.html#sqlitelimitvariablenumber
-  // for the SQLITE_LIMIT_VARIABLE_NUMBER maximum number of parameters that can be
-  // passed in a query.
-  // splitting an iterator in chunks would come in handy here.
-
-  let query_str =
-    "INSERT INTO fields_name (jira_field_name, human_name) VALUES
-                (?, ?)
-            ON CONFLICT DO
-            UPDATE SET human_name = excluded.human_name";
-
-  for (jira_id, human_name) in fields_to_insert {
-    let res = sqlx::query(query_str)
-      .bind(jira_id)
-      .bind(human_name)
-      .execute(&mut *tx)
-      .await;
-    match res {
-      Ok(e) => { row_affected += e.rows_affected() }
-      Err(e) => {
-        has_error = true;
-        eprintln!("Error: {e}")
-      }
-    }
-  }
-
-  tx.commit().await.unwrap();
-
-  if has_error {
-    println!("Error occurred while updating the database with projects")
-  } else {
-    println!("updated projects in database: {row_affected} rows were updated")
-  }
-}
 
 pub(crate) async fn update_interesting_projects_in_db(config: &Config, db_conn: &mut Pool<Sqlite>) {
   for project_key in config.interesting_projects() {
     let json_tickets = get_project_tasks_from_server(project_key, &config).await;
-    let fields = get_fields_from_json(&json_tickets);
-    if let Ok(fields) = fields {
-      update_field_names_in_db(&fields, db_conn).await;
-    }
 
     let issue_types = get_issue_type_from_json(&json_tickets);
     if let Ok(issue_types) = issue_types {
