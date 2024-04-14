@@ -3,7 +3,6 @@ use sqlx::{FromRow, Pool, Sqlite};
 use crate::get_config::Config;
 use crate::get_json_from_url::get_json_from_url;
 use crate::get_str_for_key;
-use crate::manage_project_table::ProjectShortData;
 use crate::utils::get_inputs_not_in_db;
 
 #[derive(FromRow, Debug, Eq, PartialEq, Hash)]
@@ -28,7 +27,7 @@ async fn get_fields_from_database(config: &Config, db_conn: &Pool<Sqlite>) -> Ve
     // todo(perf) simply rename fields in ProjectShortData to avoid the need of this conversion
     Ok(data) => { data }
     Err(e) => {
-      eprintln!("Error occurred while trying to get projects from local database: {e}");
+      eprintln!("Error occurred while trying to get fields from local database: {e}");
       Vec::new()
     }
   }

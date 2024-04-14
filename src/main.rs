@@ -1,3 +1,5 @@
+extern crate core;
+
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
@@ -10,19 +12,21 @@ use sqlx::migrate::MigrateDatabase;
 use crate::get_config::{Config, get_config};
 use crate::manage_field_name_table::update_interesting_projects_in_db;
 use crate::manage_field_table::update_fields_in_db;
+use crate::manage_issuetype_table::update_issue_types_in_db;
 use crate::manage_linktype_table::update_issue_link_types_in_db;
-use crate::manage_project_table::get_project_list_from_server;
 use crate::manage_project_table::update_project_list_in_db;
 
 mod get_config;
 mod defaults;
-mod manage_project_table;
 mod manage_field_name_table;
 mod get_project_tasks_from_server;
 mod get_json_from_url;
 mod manage_linktype_table;
 mod manage_field_table;
 mod utils;
+mod manage_issuetype_table;
+mod manage_project_table;
+mod manage_issue_table;
 
 
 async fn init_db(db_path: &std::path::PathBuf) -> Result<Pool<Sqlite>, String> {
@@ -86,20 +90,9 @@ pub async fn main() {
     let db_path = config.local_database();
     let mut db = init_db(db_path).await.unwrap();
 
-    let update_project_list = false;
-    if update_project_list {
-        let project_list = get_project_list_from_server(&config).await;
-        let project_list = match project_list {
-            Ok(a) => { a }
-            Err(e) => {
-                eprintln!(" failed to get projects {e}");
-                return;
-            }
-        };
-        update_project_list_in_db(&project_list, &mut db).await;
-    }
-
+    update_issue_types_in_db(&config, &mut db).await;
     update_fields_in_db(&config, &mut db).await;
     update_issue_link_types_in_db(&config, &mut db).await;
+    update_project_list_in_db(&config, &mut db).await;
     update_interesting_projects_in_db(&config, &mut db).await;
 }

@@ -8,15 +8,15 @@ CREATE TABLE IF NOT EXISTS people (
    displayName TEXT UNIQUE NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS projects (
+CREATE TABLE IF NOT EXISTS Project (
    jira_id INTEGER UNIQUE PRIMARY KEY NOT NULL,
-   key TEXT UNIQUE NOT NULL, -- something like COMPANYPROJ
+   key TEXT UNIQUE NOT NULL,
    name TEXT NOT NULL,
-   lead_id TEXT,
-   FOREIGN KEY(lead_id) REFERENCES people(accountId)
+   description TEXT,
+   is_archived INTEGER NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS projects_key ON projects(key);
+CREATE INDEX IF NOT EXISTS projects_key ON Project(key);
 
 CREATE TABLE IF NOT EXISTS Field (
   jira_id TEXT UNIQUE PRIMARY KEY NOT NULL, -- like customfield_12345
@@ -28,8 +28,16 @@ CREATE TABLE IF NOT EXISTS Field (
 
 CREATE TABLE IF NOT EXISTS IssueType (
    jira_id INTEGER UNIQUE PRIMARY KEY NOT NULL,
-   name TEXT UNIQUE NOT NULL,
-   description TEXT
+   name TEXT NOT NULL,
+   description TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS IssueTypePerProject (
+   project_id INTEGER,
+   issue_type_id INTEGER,
+   FOREIGN KEY(project_id) REFERENCES Project(jira_id),
+   FOREIGN KEY(issue_type_id) REFERENCES IssueType(jira_id),
+   UNIQUE(project_id, issue_type_id)
 );
 
 CREATE TABLE IF NOT EXISTS Issue (

@@ -3,7 +3,7 @@ use sqlx::{FromRow, Pool, Sqlite};
 use crate::get_config::Config;
 use crate::get_json_from_url::get_json_from_url;
 use crate::get_str_for_key;
-use crate::manage_project_table::ProjectShortData;
+use crate::utils::get_inputs_not_in_db;
 
 #[derive(FromRow, Debug, Eq, PartialEq, Hash)]
 pub(crate) struct LinkType {
@@ -26,7 +26,7 @@ async fn get_link_types_from_database(config: &Config, db_conn: &Pool<Sqlite>) -
     // todo(perf) simply rename fields in ProjectShortData to avoid the need of this conversion
     Ok(data) => { data }
     Err(e) => {
-      eprintln!("Error occurred while trying to get projects from local database: {e}");
+      eprintln!("Error occurred while trying to get link types from local database: {e}");
       Vec::new()
     }
   }
@@ -85,20 +85,7 @@ fn get_link_types_not_in_db<'a, 'b>(link_types: &'a Vec<LinkType>, link_types_in
                                     -> Vec<&'a LinkType>
   where 'b: 'a
 {
-  // use hash tables to avoid quadratic algorithm
-  // todo(perf) use faster hasher. We don't need the security from SIP
-  let to_hash_set = |x: &'a Vec<LinkType>| {
-    x
-      .iter()
-      .collect::<HashSet<&'a LinkType>>()
-  };
-  let link_types_in_db = to_hash_set(link_types_in_db);
-  let link_types = to_hash_set(link_types);
-
-  let res = link_types.difference(&link_types_in_db)
-    .map(|x| *x)
-    .collect::<Vec<_>>();
-  res
+  get_inputs_not_in_db(link_types.as_slice(), link_types_in_db.as_slice())
 }
 
 async fn insert_linktypes_to_database(db_conn: &mut Pool<Sqlite>, linktypes_to_insert: Vec<&LinkType>) {
