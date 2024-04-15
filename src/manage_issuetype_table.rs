@@ -140,7 +140,6 @@ async fn update_issue_types_in_db(config: &Config, db_conn: &mut Pool<Sqlite>) {
   let issue_types_in_db = get_issue_types_from_database(&config, &db_conn).await;
   let issue_types_to_insert = get_issue_types_not_in_db(&issue_types_to_insert, &issue_types_in_db);
 
-  dbg!(&issue_types_to_insert);
   insert_issuetypes_to_database(db_conn, issue_types_to_insert).await;
 }
 

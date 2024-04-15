@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS people (
 CREATE TABLE IF NOT EXISTS Project (
    jira_id INTEGER UNIQUE PRIMARY KEY NOT NULL,
    key TEXT UNIQUE NOT NULL,
-   name TEXT NOT NULL,
+   name TEXT,
    description TEXT,
    is_archived INTEGER NOT NULL
 );
@@ -42,7 +42,10 @@ CREATE TABLE IF NOT EXISTS IssueTypePerProject (
 
 CREATE TABLE IF NOT EXISTS Issue (
    jira_id INTEGER UNIQUE PRIMARY KEY NOT NULL,
-   key TEXT UNIQUE NOT NULL  -- something like COMPANYPROJ-1234
+   key TEXT UNIQUE NOT NULL,  -- something like COMPANYPROJ-1234
+   project_key TEXT NOT NULL,
+   FOREIGN KEY (project_key) REFERENCES Project(key),
+   UNIQUE(key, project_key)
 );
 
 CREATE TABLE IF NOT EXISTS LinkType (
@@ -53,15 +56,15 @@ CREATE TABLE IF NOT EXISTS LinkType (
 );
 
 -- link between two issues (aka between two COMPANYPROJ-XXXXX)
-CREATE TABLE IF NOT EXISTS issuelink (
+CREATE TABLE IF NOT EXISTS IssueLink (
     jira_id INTEGER UNIQUE PRIMARY KEY NOT NULL,
     link_type_id INTEGER,
-    outward_link INTEGER,
-    inward_link INTEGER,
+    outward_issue_id INTEGER,
+    inward_issue_id INTEGER,
     FOREIGN KEY(link_type_id) REFERENCES LinkType(jira_id),
-    FOREIGN KEY(outward_link) REFERENCES Issue(jira_id),
-    FOREIGN KEY(inward_link) REFERENCES Issue(jira_id),
-    CHECK (outward_link != inward_link)
+    FOREIGN KEY(outward_issue_id) REFERENCES Issue(jira_id),
+    FOREIGN KEY(inward_issue_id) REFERENCES Issue(jira_id),
+    CHECK (outward_issue_id != inward_issue_id)
 );
 
 CREATE TABLE IF NOT EXISTS watcher (
