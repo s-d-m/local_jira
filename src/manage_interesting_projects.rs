@@ -7,10 +7,12 @@ use sqlx::types::{Json, JsonValue};
 use tokio::net::tcp::ReuniteError;
 use crate::get_config::Config;
 use crate::get_project_tasks_from_server::get_project_tasks_from_server;
+use crate::manage_issue_field::fill_issues_fields;
 use crate::manage_project_table::Project;
 
 
 #[derive(FromRow, Hash, PartialEq, Eq, Debug)]
+pub(crate)
 struct Issue {
   jira_id: u32,
   key: String,
@@ -154,7 +156,7 @@ struct IssueLink {
   inward_issue_id: u32,
 }
 
-fn get_id(json_data: &Value) -> Option<u32> {
+pub(crate) fn get_id(json_data: &Value) -> Option<u32> {
   let Some(json_data) = json_data.as_object() else {
     return None;
   };
@@ -189,7 +191,7 @@ fn get_link_type(json_data: &Value) -> Option<(u32 /* link id */, bool /* is out
   let Some(link_type_id) = get_id(link_type) else {
     return None;
   };
-  dbg!(json_data);
+//  dbg!(json_data);
   let inward = json_data.get("inwardIssue");
   let outward = json_data.get("outwardIssue");
 
@@ -279,7 +281,7 @@ fn get_issue_links_from_json(json_data: &Value) -> Result<Vec<IssueLink>, String
 }
 
 async fn update_issue_links_in_db(issue_links: &Vec<IssueLink>, db_conn: &mut Pool<Sqlite>) {
-  dbg!(&issue_links);
+  //dbg!(&issue_links);
   if issue_links.is_empty() {
     return;
   }
@@ -337,15 +339,24 @@ pub(crate) async fn update_interesting_projects_in_db(config: &Config, db_conn: 
   for project_key in config.interesting_projects() {
     let json_tickets = get_project_tasks_from_server(project_key, &config).await;
     if let Ok(json_tickets) = json_tickets {
+      
       let issues = get_issues_from_json(&json_tickets, project_key.as_str());
-      if let Ok(issues) = issues {
-        update_issues_in_db(&issues, db_conn, project_key.as_str()).await;
+      match issues {
+        Ok(issues) => {
+          update_issues_in_db(&issues, db_conn, project_key.as_str()).await;
+        }
+        Err(e) => { println!("Error: {e}"); }
       }
 
       let issue_links = get_issue_links_from_json(&json_tickets);
-      if let Ok(issue_links) = issue_links {
-        update_issue_links_in_db(&issue_links, db_conn).await;
+      match issue_links {
+        Ok(issue_links) => {
+          update_issue_links_in_db(&issue_links, db_conn).await;
+        }
+        Err(e) => { println!("Error: {e}") }
       }
+
+      fill_issues_fields(&json_tickets, db_conn).await;
     }
   }
 }

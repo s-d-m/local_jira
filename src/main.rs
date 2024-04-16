@@ -26,6 +26,7 @@ mod manage_field_table;
 mod utils;
 mod manage_issuetype_table;
 mod manage_project_table;
+mod manage_issue_field;
 
 async fn init_db(db_path: &std::path::PathBuf) -> Result<Pool<Sqlite>, String> {
 

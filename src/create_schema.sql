@@ -67,6 +67,16 @@ CREATE TABLE IF NOT EXISTS IssueLink (
     CHECK (outward_issue_id != inward_issue_id)
 );
 
+CREATE TABLE IF NOT EXISTS IssueField (
+   issue_id INTEGER,
+   field_id STRING,
+   field_value STRING,
+
+   FOREIGN KEY(issue_id) REFERENCES Issue(jira_id),
+   FOREIGN KEY(field_id) REFERENCES Field(jira_id),
+   UNIQUE(issue_id, field_id)
+);
+
 CREATE TABLE IF NOT EXISTS watcher (
     person TEXT,
     Issue INTEGER,
