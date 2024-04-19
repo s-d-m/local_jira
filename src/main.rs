@@ -13,7 +13,7 @@ use crate::get_config::{Config, get_config};
 use crate::manage_interesting_projects::update_interesting_projects_in_db;
 use crate::manage_field_table::update_fields_in_db;
 use crate::manage_issuetype_table::update_issue_types_in_db;
-use crate::manage_linktype_table::update_issue_link_types_in_db;
+use crate::manage_issuelinktype_table::update_issue_link_types_in_db;
 use crate::manage_project_table::update_project_list_in_db;
 
 mod get_config;
@@ -21,7 +21,7 @@ mod defaults;
 mod manage_interesting_projects;
 mod get_project_tasks_from_server;
 mod get_json_from_url;
-mod manage_linktype_table;
+mod manage_issuelinktype_table;
 mod manage_field_table;
 mod utils;
 mod manage_issuetype_table;

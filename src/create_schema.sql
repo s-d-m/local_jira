@@ -48,7 +48,9 @@ CREATE TABLE IF NOT EXISTS Issue (
    UNIQUE(key, project_key)
 );
 
-CREATE TABLE IF NOT EXISTS LinkType (
+CREATE INDEX IF NOT EXISTS issue_key ON Issue(key);
+
+CREATE TABLE IF NOT EXISTS IssueLinkType (
    jira_id INTEGER UNIQUE PRIMARY KEY NOT NULL,
    name TEXT NOT NULL,
    outward_name TEXT NOT NULL,
@@ -61,7 +63,7 @@ CREATE TABLE IF NOT EXISTS IssueLink (
     link_type_id INTEGER,
     outward_issue_id INTEGER,
     inward_issue_id INTEGER,
-    FOREIGN KEY(link_type_id) REFERENCES LinkType(jira_id),
+    FOREIGN KEY(link_type_id) REFERENCES IssueLinkType(jira_id),
     FOREIGN KEY(outward_issue_id) REFERENCES Issue(jira_id),
     FOREIGN KEY(inward_issue_id) REFERENCES Issue(jira_id),
     CHECK (outward_issue_id != inward_issue_id)

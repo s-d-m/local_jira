@@ -6,19 +6,19 @@ use crate::get_str_for_key;
 use crate::utils::get_inputs_not_in_db;
 
 #[derive(FromRow, Debug, Eq, PartialEq, Hash)]
-pub(crate) struct LinkType {
+pub(crate) struct IssueLinkType {
   jira_id: u32,
   name: String,
   outward_name: String,
   inward_name: String,
 }
 
-async fn get_link_types_from_database(config: &Config, db_conn: &Pool<Sqlite>) -> Vec<LinkType> {
+async fn get_link_types_from_database(db_conn: &Pool<Sqlite>) -> Vec<IssueLinkType> {
   let query_str =
     "SELECT  jira_id, name, outward_name, inward_name
-         FROM LinkType;";
+         FROM IssueLinkType;";
 
-  let rows = sqlx::query_as::<_, LinkType>(query_str)
+  let rows = sqlx::query_as::<_, IssueLinkType>(query_str)
     .fetch_all(db_conn)
     .await;
 
@@ -33,7 +33,7 @@ async fn get_link_types_from_database(config: &Config, db_conn: &Pool<Sqlite>) -
 }
 
 
-async fn get_link_types_from_server(config: &Config) -> Result<Vec<LinkType>, String>{
+async fn get_issue_link_types_from_server(config: &Config) -> Result<Vec<IssueLinkType>, String>{
   let query = "/rest/api/2/issueLinkType";
   let json_data = get_json_from_url(config, query).await;
   let Ok(json_data) = json_data else {
@@ -67,7 +67,7 @@ async fn get_link_types_from_server(config: &Config) -> Result<Vec<LinkType>, St
         }
       };
 
-      Some(LinkType {
+      Some(IssueLinkType {
         jira_id,
         name: name.to_string(),
         outward_name: outward_name.to_string(),
@@ -81,15 +81,15 @@ async fn get_link_types_from_server(config: &Config) -> Result<Vec<LinkType>, St
 }
 
 
-fn get_link_types_not_in_db<'a, 'b>(link_types: &'a Vec<LinkType>, link_types_in_db: &'b Vec<LinkType>)
-                                    -> Vec<&'a LinkType>
+fn get_link_types_not_in_db<'a, 'b>(link_types: &'a Vec<IssueLinkType>, link_types_in_db: &'b Vec<IssueLinkType>)
+                                    -> Vec<&'a IssueLinkType>
   where 'b: 'a
 {
   get_inputs_not_in_db(link_types.as_slice(), link_types_in_db.as_slice())
 }
 
-async fn insert_linktypes_to_database(db_conn: &mut Pool<Sqlite>, linktypes_to_insert: Vec<&LinkType>) {
-  if linktypes_to_insert.is_empty() {
+async fn insert_issue_link_types_to_database(db_conn: &mut Pool<Sqlite>, issue_link_types_to_insert: Vec<&IssueLinkType>) {
+  if issue_link_types_to_insert.is_empty() {
     println!("No new link type found");
     return;
   }
@@ -110,12 +110,12 @@ async fn insert_linktypes_to_database(db_conn: &mut Pool<Sqlite>, linktypes_to_i
   // splitting an iterator in chunks would come in handy here.
 
   let query_str =
-    "INSERT INTO LinkType (jira_id, name, outward_name, inward_name) VALUES
+    "INSERT INTO IssueLinkType (jira_id, name, outward_name, inward_name) VALUES
                 (?, ?, ?, ?)
             ON CONFLICT DO
             UPDATE SET name = excluded.name, inward_name = excluded.inward_name, outward_name = excluded.outward_name";
 
-  for LinkType { jira_id, name, outward_name, inward_name } in linktypes_to_insert {
+  for IssueLinkType { jira_id, name, outward_name, inward_name } in issue_link_types_to_insert {
     let res = sqlx::query(query_str)
       .bind(jira_id)
       .bind(name)
@@ -144,15 +144,15 @@ async fn insert_linktypes_to_database(db_conn: &mut Pool<Sqlite>, linktypes_to_i
 
 pub(crate)
 async fn update_issue_link_types_in_db(config: &Config, db_conn: &mut Pool<Sqlite>) {
-  let link_types_to_insert = get_link_types_from_server(&config).await;
+  let link_types_to_insert = get_issue_link_types_from_server(&config).await;
   let Ok(link_types_to_insert) = link_types_to_insert else {
     println!("Error: failed to get link types from server: Err=[{e}]", e = link_types_to_insert.err().unwrap());
     return;
   };
-  let link_types_in_db = get_link_types_from_database(&config, &db_conn).await;
+  let link_types_in_db = get_link_types_from_database(&db_conn).await;
   let links_to_insert = get_link_types_not_in_db(&link_types_to_insert, &link_types_in_db);
 
 
-  insert_linktypes_to_database(db_conn, links_to_insert).await;
+  insert_issue_link_types_to_database(db_conn, links_to_insert).await;
 }
 
