@@ -38,7 +38,7 @@ async fn get_projects_from_database(db_conn: &Pool<Sqlite>) -> Vec<Project> {
 // todo: use UPSERT instead of computing what only needs to change
 
 async fn get_json_projects_from_server(config: &Config) -> Result<Value, String> {
-  let query = "/rest/api/2/project?expand=description,issueTypes";
+  let query = "/rest/api/2/project?expand=description";
   let json_data = get_json_from_url(config, query).await;
   let Ok(json_data) = json_data else {
     return Err(format!("Error: failed to get list of projects from server.\n{e}", e=json_data.err().unwrap().to_string()));
