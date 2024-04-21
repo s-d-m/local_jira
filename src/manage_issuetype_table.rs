@@ -79,7 +79,7 @@ fn get_issue_types_not_in_db<'a, 'b>(issue_types: &'a Vec<IssueType>, issue_type
 
 async fn insert_issuetypes_to_database(db_conn: &mut Pool<Sqlite>, issuetypes_to_insert: Vec<&IssueType>) {
   if issuetypes_to_insert.is_empty() {
-    println!("No new issue type found");
+    eprintln!("No new issue type found");
     return;
   }
 
@@ -123,9 +123,9 @@ async fn insert_issuetypes_to_database(db_conn: &mut Pool<Sqlite>, issuetypes_to
   tx.commit().await.unwrap();
 
   if has_error {
-    println!("Error occurred while updating the database with issue types")
+    eprintln!("Error occurred while updating the database with issue types")
   } else {
-    println!("updated issue types in database: {row_affected} rows were updated")
+    eprintln!("updated issue types in database: {row_affected} rows were updated")
   }
 }
 
@@ -134,7 +134,7 @@ pub(crate)
 async fn update_issue_types_in_db(config: &Config, db_conn: &mut Pool<Sqlite>) {
   let issue_types_to_insert = get_issue_types_from_server(&config).await;
   let Ok(issue_types_to_insert) = issue_types_to_insert else {
-    println!("Error: failed to get issue types from server: Err=[{e}]", e = issue_types_to_insert.err().unwrap());
+    eprintln!("Error: failed to get issue types from server: Err=[{e}]", e = issue_types_to_insert.err().unwrap());
     return;
   };
   let issue_types_in_db = get_issue_types_from_database(&config, &db_conn).await;

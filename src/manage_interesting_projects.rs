@@ -85,7 +85,7 @@ async fn update_issues_in_db(issues_to_insert: &Vec<Issue>, db_conn: &mut Pool<S
   let issues_in_db = match issues_in_db {
     Ok(v) => v,
     Err(e) => {
-      println!("Error occurred: {e}");
+      eprintln!("Error occurred: {e}");
       Vec::new()
     }
   };
@@ -97,7 +97,7 @@ async fn update_issues_in_db(issues_to_insert: &Vec<Issue>, db_conn: &mut Pool<S
     .collect::<Vec<_>>();
 
   if issues_to_insert.is_empty() {
-    println!("No new issue found for project [{project_key}]");
+    eprintln!("No new issue found for project [{project_key}]");
     return;
   }
 
@@ -142,9 +142,9 @@ async fn update_issues_in_db(issues_to_insert: &Vec<Issue>, db_conn: &mut Pool<S
   tx.commit().await.unwrap();
 
   if has_error {
-    println!("Error occurred while updating the database with Issue")
+    eprintln!("Error occurred while updating the database with Issue")
   } else {
-    println!("updated Issues in database: {row_affected} rows were updated")
+    eprintln!("updated Issues in database: {row_affected} rows were updated")
   }
 }
 
@@ -197,7 +197,7 @@ fn get_link_type(json_data: &Value) -> Option<(u32 /* link id */, bool /* is out
 
   let res = match (outward, inward) {
     (Some(_), Some(_)) => {
-      println!("Error a link can't be both outward and inward");
+      eprintln!("Error a link can't be both outward and inward");
       None
     }
     (Some(outward), None) => {
@@ -207,7 +207,7 @@ fn get_link_type(json_data: &Value) -> Option<(u32 /* link id */, bool /* is out
       Some((false, inward))
     }
     (None, None) => {
-      println!("Error a link has to be either inward or outward. Can't be none.");
+      eprintln!("Error a link has to be either inward or outward. Can't be none.");
       None
     }
   };
@@ -329,9 +329,9 @@ async fn update_issue_links_in_db(issue_links: &Vec<IssueLink>, db_conn: &mut Po
   tx.commit().await.unwrap();
 
   if has_error {
-    println!("Error occurred while updating the database with IssueLinks")
+    eprintln!("Error occurred while updating the database with IssueLinks")
   } else {
-    println!("updated IssueLinks in database: {row_affected} rows were updated")
+    eprintln!("updated IssueLinks in database: {row_affected} rows were updated")
   }
 }
 

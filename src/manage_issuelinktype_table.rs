@@ -90,7 +90,7 @@ fn get_link_types_not_in_db<'a, 'b>(link_types: &'a Vec<IssueLinkType>, link_typ
 
 async fn insert_issue_link_types_to_database(db_conn: &mut Pool<Sqlite>, issue_link_types_to_insert: Vec<&IssueLinkType>) {
   if issue_link_types_to_insert.is_empty() {
-    println!("No new link type found");
+    eprintln!("No new link type found");
     return;
   }
 
@@ -135,9 +135,9 @@ async fn insert_issue_link_types_to_database(db_conn: &mut Pool<Sqlite>, issue_l
   tx.commit().await.unwrap();
 
   if has_error {
-    println!("Error occurred while updating the database with Link types")
+    eprintln!("Error occurred while updating the database with Link types")
   } else {
-    println!("updated Link types in database: {row_affected} rows were updated")
+    eprintln!("updated Link types in database: {row_affected} rows were updated")
   }
 }
 
@@ -146,7 +146,7 @@ pub(crate)
 async fn update_issue_link_types_in_db(config: &Config, db_conn: &mut Pool<Sqlite>) {
   let link_types_to_insert = get_issue_link_types_from_server(&config).await;
   let Ok(link_types_to_insert) = link_types_to_insert else {
-    println!("Error: failed to get link types from server: Err=[{e}]", e = link_types_to_insert.err().unwrap());
+    eprintln!("Error: failed to get link types from server: Err=[{e}]", e = link_types_to_insert.err().unwrap());
     return;
   };
   let link_types_in_db = get_link_types_from_database(&db_conn).await;

@@ -124,7 +124,7 @@ fn get_issue_types_per_project_not_in_db<'a, 'b>(issue_types_per_project: &'a Ve
 async fn insert_issue_types_per_project_in_db(issue_types_per_project_to_insert: Vec<&IssueTypePerProject>,
                                               db_conn: &mut Pool<Sqlite>) {
   if issue_types_per_project_to_insert.is_empty() {
-    println!("No new issue types per project found");
+    eprintln!("No new issue types per project found");
     return;
   }
   
@@ -165,15 +165,15 @@ async fn insert_issue_types_per_project_in_db(issue_types_per_project_to_insert:
   tx.commit().await.unwrap();
 
   if has_error {
-    println!("Error occurred while updating the database with projects")
+    eprintln!("Error occurred while updating the database with projects")
   } else {
-    println!("updated projects in database: {row_affected} rows were updated")
+    eprintln!("updated projects in database: {row_affected} rows were updated")
   }
 }
 
 async fn insert_projects_to_database(projects_to_insert: Vec<&Project>, db_conn: &mut Pool<Sqlite>) {
   if projects_to_insert.is_empty() {
-    println!("No new project found");
+    eprintln!("No new project found");
     return;
   }
 
@@ -222,9 +222,9 @@ async fn insert_projects_to_database(projects_to_insert: Vec<&Project>, db_conn:
   tx.commit().await.unwrap();
 
   if has_error {
-    println!("Error occurred while updating the database with projects")
+    eprintln!("Error occurred while updating the database with projects")
   } else {
-    println!("updated projects in database: {row_affected} rows were updated")
+    eprintln!("updated projects in database: {row_affected} rows were updated")
   }
 }
 
@@ -255,7 +255,7 @@ async fn get_issue_types_per_project_in_db(db_conn: &Pool<Sqlite>) -> Vec<IssueT
 
 fn get_issue_types_per_project(json_data: &Value) -> Vec<IssueTypePerProject> {
   let Some(json_array) = json_data.as_array() else {
-    println!("Error: Returned data is unexpected. Expecting a json object, got [{e}]", e = json_data.to_string());
+    eprintln!("Error: Returned data is unexpected. Expecting a json object, got [{e}]", e = json_data.to_string());
     return Vec::new();
   };
   
@@ -310,13 +310,13 @@ pub(crate)
 async fn update_project_list_in_db(config: &Config, mut db_conn: &mut Pool<Sqlite>) {
   let json_data = get_json_projects_from_server(&config).await;
   let Ok(json_data) = json_data else {
-    println!("Error: failed to get projects from server: Err=[{e}]", e = json_data.err().unwrap().as_str());
+    eprintln!("Error: failed to get projects from server: Err=[{e}]", e = json_data.err().unwrap().as_str());
     return;
   };
 
   let projects_to_insert = get_projects_from_server(&json_data).await;
   let Ok(projects_to_insert) = projects_to_insert else  {
-      println!("Error: failed to get projects from server: Err=[{e}]", e = projects_to_insert.err().unwrap().as_str());
+      eprintln!("Error: failed to get projects from server: Err=[{e}]", e = projects_to_insert.err().unwrap().as_str());
       return;
   };
   let projects_in_db = get_projects_from_database(&db_conn).await;

@@ -59,7 +59,7 @@ pub(crate)
 async fn fill_issues_fields(json_data: &Value, db_conn: &mut Pool<Sqlite>) {
   let properties = get_issues_properties(&json_data);
   let Ok(properties) = properties else {
-    println!("Error: {e}", e = properties.err().unwrap());
+    eprintln!("Error: {e}", e = properties.err().unwrap());
     return;
   };
   
@@ -98,8 +98,8 @@ async fn fill_issues_fields(json_data: &Value, db_conn: &mut Pool<Sqlite>) {
   tx.commit().await.unwrap();
 
   if has_error {
-    println!("Error occurred while updating the database with issue fields")
+    eprintln!("Error occurred while updating the database with issue fields")
   } else {
-    println!("updated Issue fields in database: {row_affected} rows were updated")
+    eprintln!("updated Issue fields in database: {row_affected} rows were updated")
   }
 }

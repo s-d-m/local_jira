@@ -36,19 +36,19 @@ async fn init_db(db_path: &std::path::PathBuf) -> Result<Pool<Sqlite>, String> {
                            f = db_path.to_string_lossy()));
     };
     if !Sqlite::database_exists(path).await.unwrap_or(false) {
-        println!("Creating database {}", path);
+        eprintln!("Creating database {}", path);
         match Sqlite::create_database(path).await {
-            Ok(_) => println!("Create db success"),
+            Ok(_) => eprintln!("Create db success"),
             Err(error) => panic!("error: {}", error),
         }
     } else {
-        println!("Database already exists");
+        eprintln!("Database already exists");
     }
 
     let db = SqlitePool::connect(path).await.unwrap();
     let create_schema = include_str!("create_schema.sql");
     let result = sqlx::query(create_schema).execute(&db).await.unwrap();
-    println!("Create user table result: {:?}", result);
+    eprintln!("Create user table result: {:?}", result);
     Ok(db)
 }
 

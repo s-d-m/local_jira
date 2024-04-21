@@ -108,7 +108,7 @@ fn get_fields_not_in_db<'a, 'b>(fields: &'a Vec<Field>, fields_in_db: &'b Vec<Fi
 
 async fn insert_fields_to_database(db_conn: &mut Pool<Sqlite>, fields_to_insert: Vec<&Field>) {
   if fields_to_insert.is_empty() {
-    println!("No new field found");
+    eprintln!("No new field found");
     return;
   }
 
@@ -157,9 +157,9 @@ async fn insert_fields_to_database(db_conn: &mut Pool<Sqlite>, fields_to_insert:
   tx.commit().await.unwrap();
 
   if has_error {
-    println!("Error occurred while updating the database with Link types")
+    eprintln!("Error occurred while updating the database with Link types")
   } else {
-    println!("updated Link types in database: {row_affected} rows were updated")
+    eprintln!("updated Link types in database: {row_affected} rows were updated")
   }
 }
 
@@ -168,7 +168,7 @@ pub(crate)
 async fn update_fields_in_db(config: &Config, db_conn: &mut Pool<Sqlite>) {
   let fields_to_insert = get_fields_from_server(&config).await;
   let Ok(fields_to_insert) = fields_to_insert else {
-    println!("Error: failed to get link types from server: Err=[{e}]", e = fields_to_insert.err().unwrap());
+    eprintln!("Error: failed to get link types from server: Err=[{e}]", e = fields_to_insert.err().unwrap());
     return;
   };
 //  dbg!(&fields_to_insert);
