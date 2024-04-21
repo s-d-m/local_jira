@@ -337,26 +337,35 @@ async fn update_issue_links_in_db(issue_links: &Vec<IssueLink>, db_conn: &mut Po
 
 pub(crate) async fn update_interesting_projects_in_db(config: &Config, db_conn: &mut Pool<Sqlite>) {
   for project_key in config.interesting_projects() {
+
+
     let json_tickets = get_project_tasks_from_server(project_key, &config).await;
-    if let Ok(json_tickets) = json_tickets {
-      
-      let issues = get_issues_from_json(&json_tickets, project_key.as_str());
-      match issues {
-        Ok(issues) => {
-          update_issues_in_db(&issues, db_conn, project_key.as_str()).await;
+    if let Ok(paginated_json_tickets) = json_tickets {
+      for json_tickets in &paginated_json_tickets {
+        let issues = get_issues_from_json(&json_tickets, project_key.as_str());
+        match issues {
+          Ok(issues) => {
+            update_issues_in_db(&issues, db_conn, project_key.as_str()).await;
+          }
+          Err(e) => { eprintln!("Error: {e}"); }
         }
-        Err(e) => { println!("Error: {e}"); }
+
+        fill_issues_fields(&json_tickets, db_conn).await;
       }
 
-      let issue_links = get_issue_links_from_json(&json_tickets);
-      match issue_links {
-        Ok(issue_links) => {
-          update_issue_links_in_db(&issue_links, db_conn).await;
+      // First insert all issues in the db, and then insert the links between issues.
+      // This avoids the issues where inserting links fails due to foreign constraints violation
+      // at the database layer because some issues are linked to others which crosses a pagination
+      // limit.
+      for json_tickets in &paginated_json_tickets {
+        let issue_links = get_issue_links_from_json(&json_tickets);
+        match issue_links {
+          Ok(issue_links) => {
+            update_issue_links_in_db(&issue_links, db_conn).await;
+          }
+          Err(e) => { eprintln!("Error: {e}") }
         }
-        Err(e) => { println!("Error: {e}") }
       }
-
-      fill_issues_fields(&json_tickets, db_conn).await;
     }
   }
 }
