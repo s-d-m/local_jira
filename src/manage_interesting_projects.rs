@@ -35,6 +35,9 @@ fn get_issues_from_json(json_data: &Value, project_key: &str) -> Result<Vec<Issu
       let Some(key) = x.get("key") else {
         return None;
       };
+      let Some(key) = key.as_str() else {
+        return None;
+      }; 
       let Some(jira_id) = x.get("id") else {
         return None;
       };
