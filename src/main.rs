@@ -27,6 +27,7 @@ mod utils;
 mod manage_issuetype_table;
 mod manage_project_table;
 mod manage_issue_field;
+mod server;
 
 async fn init_db(db_path: &std::path::PathBuf) -> Result<Pool<Sqlite>, String> {
 
@@ -94,4 +95,5 @@ pub async fn main() {
     update_issue_link_types_in_db(&config, &mut db).await;
     update_project_list_in_db(&config, &mut db).await;
     update_interesting_projects_in_db(&config, &mut db).await;
+    server::server_request_loop(&db).await;
 }
