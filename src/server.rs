@@ -1,7 +1,11 @@
+use std::collections::HashMap;
 use std::io;
+use serde_json::json;
 
-use sqlx::{Error, FromRow, Pool, Sqlite};
-use sqlx::types::{Json, JsonValue};
+use sqlx::{FromRow, Pool, Sqlite};
+use sqlx::types::JsonValue;
+
+use crate::atlassian_document_format::adf_doc_to_string;
 
 #[derive(FromRow, Debug)]
 struct Relations {
@@ -58,39 +62,77 @@ async fn get_jira_ticket_as_markdown(jira_key: &str, db_conn: &Pool<Sqlite>) -> 
     Err(e) => { return Err(e.to_string())}
   };
 
-  let field_query = |is_system| { format!("
+  let field_query = |is_custom| {
+    format!("
     SELECT DISTINCT Field.human_name AS name, CAST(field_value AS TEXT) AS value, schema
     FROM Field
     JOIN IssueField ON IssueField.field_id == Field.jira_id
     JOIN Issue ON Issue.jira_id == IssueField.issue_id
     WHERE Issue.key == ?
-      AND is_custom == {is_system_as_int}
-    ORDER BY name", is_system_as_int = if is_system { 1 } else { 0} ) };
-  
-  let custom_field_query = field_query(false);
-  let system_field_query = field_query(true);
+      AND is_custom == {is_custom_as_int}
+    ORDER BY name", is_custom_as_int = if is_custom { 1 } else { 0 })
+  };
+
+  let custom_field_query = field_query(true);
+  let system_field_query = field_query(false);
 
   let custom_fields = sqlx::query_as::<_, Field>(custom_field_query.as_str())
     .bind(jira_key)
     .fetch_all(db_conn)
     .await;
+  let custom_fields = custom_fields.unwrap_or_else(|x| {
+    eprintln!("Error retrieving custom fields of ticket {jira_key}: {x:?}");
+    vec![]
+  });
 
   let system_fields = sqlx::query_as::<_, Field>(system_field_query.as_str())
     .bind(jira_key)
     .fetch_all(db_conn)
     .await;
+  let system_fields = system_fields.unwrap_or_else(|x| {
+    eprintln!("Error retrieving system fields of ticket {jira_key}: {x:?}");
+    vec![]
+  });
+  let hashed_system_fields = system_fields
+    .iter()
+    .map(|x| (x.name.as_str(), x))
+    .collect::<HashMap<_, &Field>>();
 
-  dbg!(&custom_fields);
-  dbg!(&system_fields);
+  //dbg!(&custom_fields);
+
+  let summary = system_fields
+    .iter()
+    .find(|x| x.name == "Summary")
+    .and_then(|x| x.value.as_str())
+    .unwrap_or_default();
+
+  let description = hashed_system_fields.get("Description")
+    .and_then(|x| Some(adf_doc_to_string(&x.value)))
+    .unwrap_or_default();
 
 
-  let res = outward_links
+  let links_str = outward_links
     .iter()
     .chain(&inward_links)
     .map(|x| { format!("{jira_key} {relation} {other_keys}", relation=x.link_name, other_keys=x.other_issue_keys)})
     .reduce(|a, b| { format!("{a}\n{b}")})
     .unwrap_or_default();
-  
+
+  let res = format!(
+    "{jira_key}: {summary}
+=========
+
+Description:
+----
+{description}
+
+Links:
+----
+{links_str}
+
+Comments:
+-----
+");
   Ok(res)
 }
 

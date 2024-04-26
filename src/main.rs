@@ -16,6 +16,9 @@ use crate::manage_issuetype_table::update_issue_types_in_db;
 use crate::manage_issuelinktype_table::update_issue_link_types_in_db;
 use crate::manage_project_table::update_project_list_in_db;
 
+// some useful links: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-group-issues
+// https://docs.atlassian.com/software/jira/docs/api/REST/9.14.0/#api/2/project-getAllProjects
+
 mod get_config;
 mod defaults;
 mod manage_interesting_projects;
@@ -28,6 +31,7 @@ mod manage_issuetype_table;
 mod manage_project_table;
 mod manage_issue_field;
 mod server;
+mod atlassian_document_format;
 
 async fn init_db(db_path: &std::path::PathBuf) -> Result<Pool<Sqlite>, String> {
 
