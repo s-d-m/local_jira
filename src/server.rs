@@ -5,7 +5,7 @@ use serde_json::json;
 use sqlx::{FromRow, Pool, Sqlite};
 use sqlx::types::JsonValue;
 
-use crate::atlassian_document_format::adf_doc_to_string;
+use crate::atlassian_document_format::root_elt_doc_to_string;
 
 #[derive(FromRow, Debug)]
 struct Relations {
@@ -107,7 +107,7 @@ async fn get_jira_ticket_as_markdown(jira_key: &str, db_conn: &Pool<Sqlite>) -> 
     .unwrap_or_default();
 
   let description = hashed_system_fields.get("Description")
-    .and_then(|x| Some(adf_doc_to_string(&x.value)))
+    .and_then(|x| Some(root_elt_doc_to_string(&x.value)))
     .unwrap_or_default();
 
 
