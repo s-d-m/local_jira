@@ -1,26 +1,66 @@
+use serde::de::Unexpected::Str;
+use crate::atlassian_document_format;
 use serde_json::{Map, Value};
 use sqlx::types::JsonValue;
 
 // specification of the atlassatian documentation format is available at
 // https://developer.atlassian.com/cloud/jira/platform/apis/document/structure/
 
-fn get_content_subobject_as_vec_string(json: &Map<String, Value>) -> Result<Vec<String>, String> {
+#[derive(Copy, Clone, Debug)]
+enum NodeLevel {
+    TopLevel,
+    ChildNode,
+    Inline,
+}
+
+#[derive(Debug)]
+struct StringWithNodeLevel {
+    text: String,
+    node_level: NodeLevel,
+}
+
+fn indent_with(text: &str, lines_starter: &str) -> String {
+    text.lines()
+        .map(|x| format!("{lines_starter}{x}"))
+        .reduce(|a, b| format!("{a}\n{b}"))
+        .unwrap_or_default()
+}
+
+fn json_map_to_string(json: &Map<String, Value>) -> String {
+    JsonValue::Object(json.clone()).to_string()
+}
+
+fn to_inline(content: String) -> StringWithNodeLevel {
+    StringWithNodeLevel { text: content, node_level: NodeLevel::Inline }
+}
+
+fn to_top_level(content: String) -> StringWithNodeLevel {
+    StringWithNodeLevel { text: content, node_level: NodeLevel::TopLevel }
+}
+
+
+fn json_to_toplevel_string(json: &Map<String, Value>) -> StringWithNodeLevel {
+    let content = json_map_to_string(json);
+    to_top_level(content)
+}
+
+fn get_content_subobject_as_vec_string(json: &Map<String, Value>) -> Result<Vec<StringWithNodeLevel>, String> {
     let res = json
-      .get("content")
-      .and_then(|x| x.as_array())
-      .and_then(|x| Some(x.iter().map(value_to_string).collect::<Vec<_>>()))
-      .and_then(|x| Some(Ok(x)))
-      .unwrap_or_else(|| Err(JsonValue::Object(json.clone()).to_string()));
+        .get("content")
+        .and_then(|x| x.as_array())
+        .and_then(|x| Some(x.iter().map(value_to_string).collect::<Vec<_>>()))
+        .and_then(|x| Some(Ok(x)))
+        .unwrap_or_else(|| Err(json_map_to_string(json)));
 
     res
 }
 
-fn codeblock_to_string(json: &Map<String, Value>) -> String {
+fn codeblock_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
     let inner_content = json
         .get("content")
         .and_then(|x| x.as_array())
         .and_then(|x| Some(array_of_value_to_string(x)))
-        .unwrap_or_default();
+        .unwrap_or_else(|| json_to_toplevel_string(json));
 
     let language = json
         .get("attrs")
@@ -29,11 +69,15 @@ fn codeblock_to_string(json: &Map<String, Value>) -> String {
         .and_then(|x| x.as_str())
         .unwrap_or_default();
 
-    let res = format!("```{language}\n{inner_content}\n```\n");
-    res
+    let inner_content = inner_content.text;
+    let res = format!("```{language}\n{inner_content}\n```");
+    StringWithNodeLevel {
+        text: res,
+        node_level: NodeLevel::TopLevel,
+    }
 }
 
-fn emoji_to_string(json: &Map<String, Value>) -> String {
+fn emoji_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
     let attrs = json
         .get("attrs")
         .and_then(|x| {
@@ -45,246 +89,295 @@ fn emoji_to_string(json: &Map<String, Value>) -> String {
         })
         .unwrap_or_default();
 
-    String::from(attrs)
+    let res = String::from(attrs);
+    StringWithNodeLevel {
+        text: res,
+        node_level: NodeLevel::Inline,
+    }
 }
 
-fn blockquote_to_string(json: &Map<String, Value>) -> String {
+fn blockquote_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
     let inner_content = match json.get("content").and_then(|x| x.as_array()) {
-        None => JsonValue::Object(json.clone()).to_string(),
-        Some(content) => array_of_value_to_string(content),
+        None => json_map_to_string(json),
+        Some(content) => array_of_value_to_string(content).text,
     };
 
-    inner_content
-        .lines()
-        .map(|x| format!("> {x}"))
-        .reduce(|a, b| format!("{a}\n{b}"))
-        .unwrap_or_default()
+    let res = indent_with(inner_content.as_str(), "> ");
+
+    StringWithNodeLevel {
+        text: res,
+        node_level: NodeLevel::TopLevel,
+    }
 }
 
-fn list_item_to_string(json: &Map<String, Value>) -> String {
-    let inner_content = match get_content_subobject_as_vec_string(json) {
-        Ok(value) => value,
-        Err(value) => return value,
-    };
+fn list_item_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
+    let inner_content =
+        get_content_subobject_as_vec_string(json).unwrap_or_else(|value| vec![to_top_level(value)]);
 
     let content = inner_content
         .into_iter()
+        .map(|x| x.text)
         .reduce(|a, b| format!("{a}\n{b}"))
         .unwrap_or_default();
 
-    content
+    StringWithNodeLevel {
+        text: content,
+        node_level: NodeLevel::ChildNode,
+    }
 }
 
-fn bullet_list_to_string(json: &Map<String, Value>) -> String {
+fn bullet_list_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
     let inner_content = match get_content_subobject_as_vec_string(json) {
         Ok(value) => value,
-        Err(value) => return value,
+        Err(value) => {
+            return StringWithNodeLevel {
+                text: value,
+                node_level: NodeLevel::TopLevel,
+            }
+        }
     };
 
     let content = inner_content
         .iter()
         .map(|s| {
-            let bullet_item = s
-              .lines()
-              .map(|x| x.trim())
-              .enumerate()
-              .map(|(n, s)| match n {
-                  0 => format!("- {s}"),
-                  _ => format!("  {s}")
-              })
-              .reduce(|a, b| format!("{a}\n{b}"))
-              .unwrap_or_default();
+            let bullet_item = s.text
+                .lines()
+                .map(|x| x.trim())
+                .enumerate()
+                .map(|(n, s)| match n {
+                    0 => format!("  - {s}"),
+                    _ => format!("    {s}"),
+                })
+                .reduce(|a, b| format!("{a}\n{b}"))
+                .unwrap_or_default();
             bullet_item
         })
-      .reduce(|a, b| format!("{a}\n{b}"))
-      .unwrap_or_default();
+        .reduce(|a, b| format!("{a}\n{b}"))
+        .unwrap_or_default();
 
-    format!("{content}\n")
+    StringWithNodeLevel {
+        text: content,
+        node_level: NodeLevel::TopLevel,
+    }
 }
 
-fn text_to_string(json: &Map<String, Value>) -> String {
+fn text_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
     if json.get("marks").is_some() {
         eprintln!("WARNING, marks are ignored for now");
     };
 
-    json.get("text")
+    let content = json
+        .get("text")
         .and_then(|x| x.as_str())
         .and_then(|x| Some(x.to_string()))
-        .unwrap_or_default()
+        .unwrap_or_default();
+
+    StringWithNodeLevel {
+        text: content,
+        node_level: NodeLevel::Inline,
+    }
 }
 
-fn paragraph_to_string(json: &Map<String, Value>) -> String {
-    let inner_content = json.get("content")
-      .and_then(|x| x.as_array())
-      .and_then(|x| Some(array_of_value_to_string(x)))
-      .unwrap_or_default();
+fn paragraph_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
+    let inner_content = json
+        .get("content")
+        .and_then(|x| x.as_array())
+        .and_then(|x| Some(array_of_value_to_string(x).text))
+        .unwrap_or_default();
 
-    inner_content
+    StringWithNodeLevel {
+        text: inner_content,
+        node_level: NodeLevel::TopLevel,
+    }
 }
 
-fn doc_to_string(json: &Map<String, Value>) -> String {
-    let inner_content = json.get("content")
-      .and_then(|x| x.as_array())
-      .and_then(|x| Some(array_of_value_to_string(x)))
-      .unwrap_or_default();
+fn doc_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
+    let inner_content = json
+        .get("content")
+        .and_then(|x| x.as_array())
+        .and_then(|x| Some(array_of_value_to_string(x).text))
+        .unwrap_or_default();
 
-    inner_content
+    StringWithNodeLevel {
+        text: inner_content,
+        node_level: NodeLevel::TopLevel,
+    }
 }
 
-
-fn hardbreak_to_string(_json: &Map<String, Value>) -> String {
-  String::from("\n")
+fn hardbreak_to_string(_json: &Map<String, Value>) -> StringWithNodeLevel {
+    StringWithNodeLevel {
+        text: "\n".to_string(),
+        node_level: NodeLevel::Inline,
+    }
 }
 
-
-fn heading_to_string(json: &Map<String, Value>) -> String {
-    let inner_content = json.get("content")
-      .and_then(|x| x.as_array())
-      .and_then(|x| Some(array_of_value_to_string(x)))
-      .unwrap_or_default();
+fn heading_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
+    let inner_content = json
+        .get("content")
+        .and_then(|x| x.as_array())
+        .and_then(|x| Some(array_of_value_to_string(x).text))
+        .unwrap_or_default();
 
     let level = json
-      .get("attrs")
-      .and_then(|x| x.get("level"))
-      .and_then(|x| x.as_i64())
-      .and_then(|x| Some(x.clamp(1, 6)))
-      .unwrap_or_else(|| { 1 });
+        .get("attrs")
+        .and_then(|x| x.get("level"))
+        .and_then(|x| x.as_i64())
+        .and_then(|x| Some(x.clamp(1, 6)))
+        .unwrap_or_else(|| 1);
 
-    let underline_with = | underline_char: char, inner_content: String | {
+    let underline_with = |underline_char: char, inner_content: String| {
         inner_content
-          .lines()
-          .map(|x| {
-              let len = x.len();
-              let underline = underline_char.to_string().repeat(len);
-              format!("{x}\n{underline}")
-          })
-          .reduce(|a,b| format!("{a}\n{b}"))
-          .unwrap_or_default()
+            .lines()
+            .map(|x| {
+                let len = x.len();
+                let underline = underline_char.to_string().repeat(len);
+                format!("{x}\n{underline}")
+            })
+            .reduce(|a, b| format!("{a}\n{b}"))
+            .unwrap_or_default()
     };
 
-    let to_level_1 = |inner_content: String| { underline_with('=', inner_content) };
-    let to_level_2 = |inner_content: String| { underline_with('-', inner_content) };
+    let to_level_1 = |inner_content: String| underline_with('=', inner_content);
+    let to_level_2 = |inner_content: String| underline_with('-', inner_content);
     let to_level_n = |n: i64, inner_content: String| {
         let n: usize = n.try_into().unwrap_or(1);
         inner_content
-          .lines()
-          .map(|x| {
-              let begin = String::from("#").repeat(n);
-              format!("{begin} {x}")
-          })
-          .reduce(|a, b| format!("{a}\n{b}"))
-          .unwrap_or_default()
+            .lines()
+            .map(|x| {
+                let begin = String::from("#").repeat(n);
+                format!("{begin} {x}")
+            })
+            .reduce(|a, b| format!("{a}\n{b}"))
+            .unwrap_or_default()
     };
 
-    match level {
+    let content = match level {
         1 => to_level_1(inner_content),
         2 => to_level_2(inner_content),
         3..=6 => to_level_n(level, inner_content),
-        _ => panic!("heading levels should be between 1 and 6, got {level}")
-    }
-}
-
-fn inline_card_to_string(json: &Map<String, Value>) -> String {
-    let repr = JsonValue::Object(json.clone()).to_string();
-    format!("inline card are not supported: value is {repr}")
-}
-
-fn mention_to_string(json: &Map<String, Value>) -> String {
-    let attrs = json
-      .get("attrs")
-      .and_then(|x| x.as_object());
-    let Some(attrs) = attrs else {
-        return JsonValue::Object(json.clone()).to_string();
+        _ => panic!("heading levels should be between 1 and 6, got {level}"),
     };
 
-    let text = attrs.get("text")
-      .and_then(|x| x.as_str());
-
-    if let Some(s) = text {
-        return String::from(s);
-    }
-
-    let id = attrs.get("id")
-      .and_then(|x| x.as_str());
-
-    match id {
-        None => { JsonValue::Object(json.clone()).to_string() }
-        Some(s) => { String::from(s) }
+    StringWithNodeLevel {
+        text: content,
+        node_level: NodeLevel::TopLevel,
     }
 }
 
-fn ordered_list_to_string(json: &Map<String, Value>) -> String {
-    let content = json
-      .get("content")
-      .and_then(|x| x.as_array());
+fn mention_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
+    let attrs = json.get("attrs").and_then(|x| x.as_object());
+    let Some(attrs) = attrs else {
+        return StringWithNodeLevel {
+            text: json_map_to_string(json),
+            node_level: NodeLevel::Inline,
+        };
+    };
+
+    let text = attrs.get("text").and_then(|x| x.as_str());
+
+    if let Some(s) = text {
+        return StringWithNodeLevel {
+            text: String::from(s),
+            node_level: NodeLevel::Inline,
+        };
+    }
+
+    let id = attrs.get("id").and_then(|x| x.as_str());
+
+    let content = match id {
+        None => json_map_to_string(json),
+        Some(s) => String::from(s),
+    };
+
+    StringWithNodeLevel {
+        text: content,
+        node_level: NodeLevel::Inline,
+    }
+}
+
+fn ordered_list_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
+    let content = json.get("content").and_then(|x| x.as_array());
 
     let Some(content) = content else {
-        return JsonValue::Object(json.clone()).to_string();
+        return StringWithNodeLevel {
+            text: json_map_to_string(json),
+            node_level: NodeLevel::ChildNode,
+        };
     };
 
     let init_num = json
-      .get("attrs")
-      .and_then(|x| x.as_object())
-      .and_then(|x| x.get("order"))
-      .and_then(|x| x.as_u64())
-      .unwrap_or(1);
+        .get("attrs")
+        .and_then(|x| x.as_object())
+        .and_then(|x| x.get("order"))
+        .and_then(|x| x.as_u64())
+        .unwrap_or(1);
 
     let content = content
-      .into_iter()
-      .map(|x| root_elt_doc_to_string(x))
-      .collect::<Vec<_>>();
+        .into_iter()
+        .map(|x| root_elt_doc_to_string(x))
+        .collect::<Vec<_>>();
 
-    content
-      .iter()
-      .enumerate()
-      .map(|(n, s)| format!("{pos}. {s}", pos = u64::try_from(n).unwrap_or(0) + init_num))
-      .reduce(|a, b| format!("{a}\n{b}"))
-      .unwrap_or_else(|| JsonValue::Object(json.clone()).to_string())
+    let content = content
+        .iter()
+        .enumerate()
+        .map(|(n, s)| format!("{pos}. {s}", pos = u64::try_from(n).unwrap_or(0) + init_num))
+        .reduce(|a, b| format!("{a}\n{b}"))
+        .unwrap_or_else(|| json_map_to_string(json));
+
+    StringWithNodeLevel {
+        text: content,
+        node_level: NodeLevel::ChildNode,
+    }
 }
 
-fn panel_to_string(json: &Map<String, Value>) -> String {
+fn panel_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
     let panel_type = json
-      .get("attrs")
-      .and_then(|x| x.as_object())
-      .and_then(|x| x.get("panelType"))
-      .and_then(|x| x.as_str());
+        .get("attrs")
+        .and_then(|x| x.as_object())
+        .and_then(|x| x.get("panelType"))
+        .and_then(|x| x.as_str());
 
     let panel_type = match panel_type {
-        Some(x) if (x == "info") || (x == "note") || (x == "warning") || (x == "success") || (x == "error") => x,
-        _ => return JsonValue::Object(json.clone()).to_string(),
+        Some(x)
+            if (x == "info")
+                || (x == "note")
+                || (x == "warning")
+                || (x == "success")
+                || (x == "error") =>
+        {
+            x
+        }
+        _ => return json_to_toplevel_string(json),
     };
 
     let content = json
-      .get("content")
-      .and_then(|x| x.as_array())
-      .and_then(|x| Some(array_of_value_to_string(x)));
+        .get("content")
+        .and_then(|x| x.as_array())
+        .and_then(|x| Some(array_of_value_to_string(x).text))
+        .unwrap_or_else(|| json_map_to_string(json));
 
-    let content = match content {
-        None => { return JsonValue::Object(json.clone()).to_string(); }
-        Some(value) => { value }
-    };
+    let content = indent_with(&content, "| ");
+    let padding_dash_len = panel_type.len();
+    let padding_dash = "-".repeat(padding_dash_len + 2);
+    let content =
+    format!("/---------- {panel_type} -----------\n{content}\n\\----------{padding_dash}-----------");
 
-    let content = content
-      .lines()
-      .map(|x| format!("  {x}"))
-      .reduce(|a, b| format!("{a}\n{b}"));
-
-    let content = match content {
-        None => { return JsonValue::Object(json.clone()).to_string(); }
-        Some(value) => { value }
-    };
-
-    format!("{panel_type}:\n{content}")
-
+    StringWithNodeLevel {
+        text: content,
+        node_level: NodeLevel::TopLevel,
+    }
 }
 
-fn rule_to_string(_json: &Map<String, Value>) -> String {
-    String::from("\n")
+fn rule_to_string(_json: &Map<String, Value>) -> StringWithNodeLevel {
+    StringWithNodeLevel {
+        text: "\n".to_string(),
+        node_level: NodeLevel::Inline,
+    }
 }
 
-fn object_to_string(json: &Map<String, Value>) -> String {
+fn object_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
     let Some(type_elt) = json.get("type").and_then(|x| x.as_str()) else {
-        return JsonValue::Object(json.clone()).to_string();
+        return json_to_toplevel_string(json);
     };
 
     match type_elt {
@@ -305,49 +398,62 @@ fn object_to_string(json: &Map<String, Value>) -> String {
         "rule" => rule_to_string(json),
         // table
         "text" => text_to_string(json),
-        _ => JsonValue::Object(json.clone()).to_string(),
+        _ => json_to_toplevel_string(json),
     }
 }
 
-enum NodeLevel {
-  TopLevel,
-    Inline,
-    
-}
-
-struct string_with_node_level {
-    text: String,
-    node_level: NodeLevel,
-}
-
-fn value_to_string(json: &JsonValue) -> String {
+fn value_to_string(json: &JsonValue) -> StringWithNodeLevel {
     match json {
-        Value::Null => String::from("null"),
-        Value::Bool(n) => n.to_string(),   // String::from(n),
-        Value::Number(n) => n.to_string(), // String::from(n),
-        Value::String(n) => String::from(n),
+        Value::Null => to_inline(String::from("null")),
+        Value::Bool(n) => to_inline(n.to_string()),   // String::from(n),
+        Value::Number(n) => to_inline(n.to_string()), // String::from(n),
+        Value::String(n) => to_inline(String::from(n)),
         Value::Array(n) => array_of_value_to_string(n),
         Value::Object(o) => object_to_string(o),
     }
 }
 
-fn array_of_value_to_string(content: &Vec<JsonValue>) -> String {
+fn merge_two_string_with_node_level(a: StringWithNodeLevel, b: StringWithNodeLevel) -> StringWithNodeLevel {
+    let res_level = b.node_level;
+
+    let separator = match (a.node_level, b.node_level) {
+        (NodeLevel::TopLevel, NodeLevel::TopLevel) => { "\n\n" }
+        (NodeLevel::TopLevel, NodeLevel::ChildNode) => { "\n"}
+        (NodeLevel::TopLevel, NodeLevel::Inline) => { "\n"}
+
+        (NodeLevel::ChildNode, NodeLevel::TopLevel) => { "\n"}
+        (NodeLevel::ChildNode, NodeLevel::ChildNode) => {"\n"}
+        (NodeLevel::ChildNode, NodeLevel::Inline) => {""}
+
+        (NodeLevel::Inline, NodeLevel::TopLevel) => {"\n"}
+        (NodeLevel::Inline, NodeLevel::ChildNode) => {"\n"}
+        (NodeLevel::Inline, NodeLevel::Inline) => {""}
+    };
+
+    let content = format!("{a}{separator}{b}", a = a.text, b = b.text);
+    StringWithNodeLevel {
+        text: content,
+        node_level: b.node_level,
+    }
+}
+
+fn array_of_value_to_string(content: &Vec<JsonValue>) -> StringWithNodeLevel {
     let res = content
         .iter()
         .map(|x| value_to_string(x))
-        .reduce(|a, b| format!("{a}\n{b}"))
-        .unwrap_or_default();
+        .reduce(|a, b| merge_two_string_with_node_level(a, b));
 
-    res
+
+    res.unwrap_or_else(|| to_inline(String::from("")))
 }
 
 pub(crate) fn root_elt_doc_to_string(description: &JsonValue) -> String {
     let res = description
-      .as_object()
-      .and_then(|x| x.get("content"))
-      .and_then(|x| x.as_array())
-      .and_then(|x| Some(array_of_value_to_string(x)))
-      .unwrap_or_else(|| description.to_string());
+        .as_object()
+        .and_then(|x| x.get("content"))
+        .and_then(|x| x.as_array())
+        .and_then(|x| Some(array_of_value_to_string(x).text))
+        .unwrap_or_else(|| description.to_string());
 
     res
 }
