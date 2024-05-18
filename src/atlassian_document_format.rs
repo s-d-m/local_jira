@@ -309,6 +309,17 @@ fn object_to_string(json: &Map<String, Value>) -> String {
     }
 }
 
+enum NodeLevel {
+  TopLevel,
+    Inline,
+    
+}
+
+struct string_with_node_level {
+    text: String,
+    node_level: NodeLevel,
+}
+
 fn value_to_string(json: &JsonValue) -> String {
     match json {
         Value::Null => String::from("null"),

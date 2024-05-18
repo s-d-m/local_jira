@@ -5,12 +5,12 @@ edition = "2021"
 authors = [ "Samuel Da Mota <da.mota.sam@gmail.com>" ]
 
 [dependencies]
-serde = { version = "1.0.197", features = ["derive"] }
+serde = { version = "1.0.198", features = ["derive"] }
 toml = "0.8.12"
 tokio = { version = "1.37.0", features = ["rt", "rt-multi-thread", "macros"] }
-reqwest = "0.12.2"
+reqwest = "0.12.4"
 base64 = "0.22.0"
-serde_json = "1.0.115"
+serde_json = "1.0.116"
 sqlx = { version = "0.7.4", features = ["runtime-tokio", "sqlite"] }
 log = "0.4.21"
 
