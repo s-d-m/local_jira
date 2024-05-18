@@ -295,6 +295,34 @@ fn mention_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
     }
 }
 
+fn task_item_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
+    let attrs = json.get("attrs").and_then(|x| x.as_object());
+    let content = json.get("content").and_then(|x| x.as_array());
+
+    if content.is_none() || attrs.is_none() {
+        return json_to_toplevel_string(json);
+    }
+
+    let status = attrs
+      .unwrap()
+      .get("state")
+      .and_then(|x| x.as_str())
+      .unwrap_or_default();
+    let beginning = match status {
+        "TODO" => "☐",
+        "DONE" => "☑",
+        _ => "?"
+    };
+
+    let content_string = array_of_value_to_string(content.unwrap());
+    let res_content = format!("{beginning} {x}", x = content_string.text);
+
+    StringWithNodeLevel {
+        text: res_content,
+        node_level: content_string.node_level
+    }
+}
+
 fn ordered_list_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
     let content = json.get("content").and_then(|x| x.as_array());
 
@@ -397,6 +425,7 @@ fn object_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
         "paragraph" => paragraph_to_string(json),
         "rule" => rule_to_string(json),
         // table
+        "taskItem" => task_item_to_string(json),
         "text" => text_to_string(json),
         _ => json_to_toplevel_string(json),
     }
