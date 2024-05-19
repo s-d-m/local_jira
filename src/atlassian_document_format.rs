@@ -403,6 +403,90 @@ fn rule_to_string(_json: &Map<String, Value>) -> StringWithNodeLevel {
     }
 }
 
+fn to_html_verbatim(val: &str) -> String {
+    format!("<verbatim>{val}</verbatim>")
+}
+
+fn table_cell_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
+    let content = json
+      .get("content")
+      .and_then(|x| x.as_array());
+
+    let Some(content) = content else {
+        let content = json_map_to_string(json);
+        return to_top_level(content);
+    };
+
+    let html_text = array_of_value_to_string(content);
+    // todo: support attrs
+
+    let res_text = format!("<td>{text}</td>", text = html_text.text);
+    StringWithNodeLevel {
+        text: res_text,
+        node_level: NodeLevel::TopLevel,
+    }
+}
+fn table_row_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
+    let content = json
+      .get("content")
+      .and_then(|x| x.as_array());
+
+    let Some(content) = content else {
+        let content = json_map_to_string(json);
+        return to_top_level(content);
+    };
+
+    let html_text = array_of_value_to_string(content);
+    // todo: support attrs
+
+    let res_text = format!("<tr>{text}</tr>", text = html_text.text);
+    StringWithNodeLevel {
+        text: res_text,
+        node_level: NodeLevel::TopLevel,
+    }
+}
+
+fn table_header_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
+    let content = json
+      .get("content")
+      .and_then(|x| x.as_array());
+
+    let Some(content) = content else {
+        let content = json_map_to_string(json);
+        return to_top_level(content);
+    };
+
+    let html_text = array_of_value_to_string(content);
+    // todo: support attrs
+
+    let res_text = format!("<th>{text}</th>", text = html_text.text);
+    StringWithNodeLevel {
+        text: res_text,
+        node_level: NodeLevel::TopLevel,
+    }
+}
+
+fn table_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
+  let content = json
+    .get("content")
+    .and_then(|x| x.as_array());
+
+  let Some(content) = content else {
+      let content = json_map_to_string(json);
+      return to_top_level(content);
+  };
+
+  let html_text = array_of_value_to_string(content);
+  let res_text = format!("<table>{text}</table>", text = html_text.text);
+
+  let res_text = html2text::from_read(res_text.as_bytes(), 80);
+
+    StringWithNodeLevel {
+        text: res_text,
+        node_level: NodeLevel::TopLevel,
+    }
+}
+
 fn object_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
     let Some(type_elt) = json.get("type").and_then(|x| x.as_str()) else {
         return json_to_toplevel_string(json);
@@ -424,7 +508,10 @@ fn object_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
         "panel" => panel_to_string(json),
         "paragraph" => paragraph_to_string(json),
         "rule" => rule_to_string(json),
-        // table
+        "table" => table_to_string(json),
+        "tableHeader" => table_header_to_string(json),
+        "tableCell" => table_cell_to_string(json),
+        "tableRow" => table_row_to_string(json),
         "taskItem" => task_item_to_string(json),
         "text" => text_to_string(json),
         _ => json_to_toplevel_string(json),
