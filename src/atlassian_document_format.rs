@@ -1,7 +1,9 @@
+use std::fmt::format;
 use serde::de::Unexpected::Str;
 use crate::atlassian_document_format;
 use serde_json::{Map, Value};
 use sqlx::types::JsonValue;
+use toml::to_string;
 
 // specification of the atlassatian documentation format is available at
 // https://developer.atlassian.com/cloud/jira/platform/apis/document/structure/
@@ -161,10 +163,165 @@ fn bullet_list_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
     }
 }
 
+struct LinkAttrs {
+    // https://developer.atlassian.com/cloud/jira/platform/apis/document/marks/link/
+    collection: Option<String>,
+    href: String,
+    id: Option<String>,
+    occurrenceKey: Option<String>,
+    title: Option<String>
+}
+
+enum MarkKind {
+    Code,
+    Emphasis, // aka italics
+    Link(LinkAttrs),
+    Strike,
+    Strong,
+    Superscript,
+    SubScript,
+    Colour(String), // Html hexa colour. e.g. #daa520 https://developer.atlassian.com/cloud/jira/platform/apis/document/marks/textColor/
+    Underline
+}
+
+fn get_text_colour_mark_kind(colour_kind: &Map<String, Value>) -> Result<MarkKind, String> {
+    // https://developer.atlassian.com/cloud/jira/platform/apis/document/marks/textColor/
+    let Some(attrs) = colour_kind.get("attrs") else {
+        return Err(String::from("Error: colour mark does not have an attrs array"));
+    };
+
+    let Some(attrs) = attrs.as_object() else {
+        return Err(String::from("Error: colour mark attrs attribute is not a json object."));
+    };
+
+    let Some(colour) = attrs.get("color") else {
+        return Err(String::from("Error: colour mark attrs attribute does not contain a href element"));
+    };
+
+    let Some(colour) = colour.as_str() else {
+        return Err(String::from("Error: colour mark element is not a string"));
+    };
+
+    if colour.len() != 7 {
+        return Err(String::from("Error: colour attribute is not an html hexadecimal colour (wrong length)"));
+    }
+
+    let chars = colour.as_bytes();
+    if chars[0] != ('#' as u8) {
+        return Err(String::from("Error: colour attribute is not an html hexadecimal colour (doesn't starts by #)"));
+    }
+
+    for i in 1..=6 {
+        if !chars[i].is_ascii_hexdigit() {
+            return Err(String::from("Error: colour attribute is not an html hexadecimal colour (not hexa value)"));
+        }
+    }
+
+    let res = Ok(MarkKind::Colour(String::from(colour)));
+    res
+}
+
+fn get_link_mark_kind(link_kind: &Map<String, Value>) -> Result<MarkKind, String> {
+    // https://developer.atlassian.com/cloud/jira/platform/apis/document/marks/link/
+    let Some(attrs) = link_kind.get("attrs") else {
+        return Err(String::from("Error: link mark does not have an attrs array"));
+    };
+
+    let Some(attrs) = attrs.as_object() else {
+        return Err(String::from("Error: link mark attrs attribute is not a json object."));
+    };
+
+    let Some(href) = attrs.get("href") else {
+        return Err(String::from("Error: link mark attrs attribute does not contain a href element"));
+    };
+
+    let Some(href) = href.as_str() else {
+        return Err(String::from("Error: link mark href element is not a string"));
+    };
+
+    let collection = attrs.get("collection");
+    let id = attrs.get("id");
+    let occurrenceKey = attrs.get("occurrenceKey");
+    let title = attrs.get("title");
+
+    let to_option_string = |value: Option<&Value>| { value.and_then(|x| x.as_str()).and_then(|x| Some(x.to_string())) };
+    let collection = to_option_string(collection);
+    let id = to_option_string(id);
+    let occurrenceKey = to_option_string(occurrenceKey);
+    let title = to_option_string(title);
+
+    let href = href.to_string();
+
+    let res = MarkKind::Link(LinkAttrs{
+        collection,
+        href,
+        id,
+        occurrenceKey,
+        title,
+    });
+
+    Ok(res)
+}
+
+fn get_sub_sup_mark_kind(subsup_mark: &Map<String, Value>) -> Result<MarkKind, String> {
+    // https://developer.atlassian.com/cloud/jira/platform/apis/document/marks/subsup/
+    let Some(attrs) = subsup_mark.get("attrs") else {
+        return Err(String::from("Error: subsup mark does not have an attrs array"));
+    };
+
+    let Some(attrs) = attrs.as_object() else {
+        return Err(String::from("Error: subsup mark attrs attribute is not a json object."));
+    };
+
+    let Some(subsup) = attrs.get("subsup") else {
+        return Err(String::from("Error: subsup mark attrs attribute does not contain a subsup element"));
+    };
+
+    let Some(subsup) = subsup.as_str() else {
+        return Err(String::from("Error: subsup mark element is not a string"));
+    };
+
+    match subsup {
+        "sub" => Ok(MarkKind::SubScript),
+        "sup" => Ok(MarkKind::Superscript),
+        _ => Err(String::from("Error subsup value is neither sub nor sup"))
+    }
+}
+
+
+fn get_mark_kind(mark: &Value) -> Result<MarkKind, String> {
+    let Some(mark) =  mark.as_object() else {
+        return Err(String::from("Invalid mark. Expecting json object"));
+    };
+
+    let Some(kind) = mark.get("type") else {
+        return Err(String::from("Invalid mark kind. Object doesn't have a type"));
+    };
+
+    let Some(kind) = kind.as_str() else {
+        return Err(String::from("Invalid mark kind. Type isn't a string"));
+    };
+
+    match kind {
+        "code" => Ok(MarkKind::Code),
+        "em" => Ok(MarkKind::Emphasis),
+        "link" => get_link_mark_kind(mark),
+        "strike" => Ok(MarkKind::Strike),
+        "strong" => Ok(MarkKind::Strong),
+        "subsup" => get_sub_sup_mark_kind(mark),
+        "textColor" => get_text_colour_mark_kind(mark),
+        "underline" => Ok(MarkKind::Underline),
+        _ => Err(format!("Unkown kind of mark. Got {kind}"))
+    }
+}
+
 fn text_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
     if json.get("marks").is_some() {
         eprintln!("WARNING, marks are ignored for now");
-    };
+    }
+    // https://developer.atlassian.com/cloud/jira/platform/apis/document/nodes/text/#marks
+
+    // https://developer.atlassian.com/cloud/jira/platform/apis/document/nodes/text/
 
     let content = json
         .get("text")
@@ -530,7 +687,6 @@ fn value_to_string(json: &JsonValue) -> StringWithNodeLevel {
 }
 
 fn merge_two_string_with_node_level(a: StringWithNodeLevel, b: StringWithNodeLevel) -> StringWithNodeLevel {
-    let res_level = b.node_level;
 
     let separator = match (a.node_level, b.node_level) {
         (NodeLevel::TopLevel, NodeLevel::TopLevel) => { "\n\n" }
