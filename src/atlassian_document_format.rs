@@ -1,8 +1,8 @@
-use std::fmt::format;
-use serde::de::Unexpected::Str;
 use crate::atlassian_document_format;
+use serde::de::Unexpected::Str;
 use serde_json::{Map, Value};
 use sqlx::types::JsonValue;
+use std::fmt::format;
 use toml::to_string;
 
 // specification of the atlassatian documentation format is available at
@@ -33,20 +33,27 @@ fn json_map_to_string(json: &Map<String, Value>) -> String {
 }
 
 fn to_inline(content: String) -> StringWithNodeLevel {
-    StringWithNodeLevel { text: content, node_level: NodeLevel::Inline }
+    StringWithNodeLevel {
+        text: content,
+        node_level: NodeLevel::Inline,
+    }
 }
 
 fn to_top_level(content: String) -> StringWithNodeLevel {
-    StringWithNodeLevel { text: content, node_level: NodeLevel::TopLevel }
+    StringWithNodeLevel {
+        text: content,
+        node_level: NodeLevel::TopLevel,
+    }
 }
-
 
 fn json_to_toplevel_string(json: &Map<String, Value>) -> StringWithNodeLevel {
     let content = json_map_to_string(json);
     to_top_level(content)
 }
 
-fn get_content_subobject_as_vec_string(json: &Map<String, Value>) -> Result<Vec<StringWithNodeLevel>, String> {
+fn get_content_subobject_as_vec_string(
+    json: &Map<String, Value>,
+) -> Result<Vec<StringWithNodeLevel>, String> {
     let res = json
         .get("content")
         .and_then(|x| x.as_array())
@@ -142,7 +149,8 @@ fn bullet_list_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
     let content = inner_content
         .iter()
         .map(|s| {
-            let bullet_item = s.text
+            let bullet_item = s
+                .text
                 .lines()
                 .map(|x| x.trim())
                 .enumerate()
@@ -169,7 +177,7 @@ struct LinkAttrs {
     href: String,
     id: Option<String>,
     occurrenceKey: Option<String>,
-    title: Option<String>
+    title: Option<String>,
 }
 
 enum MarkKind {
@@ -181,21 +189,27 @@ enum MarkKind {
     Superscript,
     SubScript,
     Colour(String), // Html hexa colour. e.g. #daa520 https://developer.atlassian.com/cloud/jira/platform/apis/document/marks/textColor/
-    Underline
+    Underline,
 }
 
 fn get_text_colour_mark_kind(colour_kind: &Map<String, Value>) -> Result<MarkKind, String> {
     // https://developer.atlassian.com/cloud/jira/platform/apis/document/marks/textColor/
     let Some(attrs) = colour_kind.get("attrs") else {
-        return Err(String::from("Error: colour mark does not have an attrs array"));
+        return Err(String::from(
+            "Error: colour mark does not have an attrs array",
+        ));
     };
 
     let Some(attrs) = attrs.as_object() else {
-        return Err(String::from("Error: colour mark attrs attribute is not a json object."));
+        return Err(String::from(
+            "Error: colour mark attrs attribute is not a json object.",
+        ));
     };
 
     let Some(colour) = attrs.get("color") else {
-        return Err(String::from("Error: colour mark attrs attribute does not contain a href element"));
+        return Err(String::from(
+            "Error: colour mark attrs attribute does not contain a href element",
+        ));
     };
 
     let Some(colour) = colour.as_str() else {
@@ -203,17 +217,23 @@ fn get_text_colour_mark_kind(colour_kind: &Map<String, Value>) -> Result<MarkKin
     };
 
     if colour.len() != 7 {
-        return Err(String::from("Error: colour attribute is not an html hexadecimal colour (wrong length)"));
+        return Err(String::from(
+            "Error: colour attribute is not an html hexadecimal colour (wrong length)",
+        ));
     }
 
     let chars = colour.as_bytes();
     if chars[0] != ('#' as u8) {
-        return Err(String::from("Error: colour attribute is not an html hexadecimal colour (doesn't starts by #)"));
+        return Err(String::from(
+            "Error: colour attribute is not an html hexadecimal colour (doesn't starts by #)",
+        ));
     }
 
     for i in 1..=6 {
         if !chars[i].is_ascii_hexdigit() {
-            return Err(String::from("Error: colour attribute is not an html hexadecimal colour (not hexa value)"));
+            return Err(String::from(
+                "Error: colour attribute is not an html hexadecimal colour (not hexa value)",
+            ));
         }
     }
 
@@ -224,19 +244,27 @@ fn get_text_colour_mark_kind(colour_kind: &Map<String, Value>) -> Result<MarkKin
 fn get_link_mark_kind(link_kind: &Map<String, Value>) -> Result<MarkKind, String> {
     // https://developer.atlassian.com/cloud/jira/platform/apis/document/marks/link/
     let Some(attrs) = link_kind.get("attrs") else {
-        return Err(String::from("Error: link mark does not have an attrs array"));
+        return Err(String::from(
+            "Error: link mark does not have an attrs array",
+        ));
     };
 
     let Some(attrs) = attrs.as_object() else {
-        return Err(String::from("Error: link mark attrs attribute is not a json object."));
+        return Err(String::from(
+            "Error: link mark attrs attribute is not a json object.",
+        ));
     };
 
     let Some(href) = attrs.get("href") else {
-        return Err(String::from("Error: link mark attrs attribute does not contain a href element"));
+        return Err(String::from(
+            "Error: link mark attrs attribute does not contain a href element",
+        ));
     };
 
     let Some(href) = href.as_str() else {
-        return Err(String::from("Error: link mark href element is not a string"));
+        return Err(String::from(
+            "Error: link mark href element is not a string",
+        ));
     };
 
     let collection = attrs.get("collection");
@@ -244,7 +272,11 @@ fn get_link_mark_kind(link_kind: &Map<String, Value>) -> Result<MarkKind, String
     let occurrenceKey = attrs.get("occurrenceKey");
     let title = attrs.get("title");
 
-    let to_option_string = |value: Option<&Value>| { value.and_then(|x| x.as_str()).and_then(|x| Some(x.to_string())) };
+    let to_option_string = |value: Option<&Value>| {
+        value
+            .and_then(|x| x.as_str())
+            .and_then(|x| Some(x.to_string()))
+    };
     let collection = to_option_string(collection);
     let id = to_option_string(id);
     let occurrenceKey = to_option_string(occurrenceKey);
@@ -252,7 +284,7 @@ fn get_link_mark_kind(link_kind: &Map<String, Value>) -> Result<MarkKind, String
 
     let href = href.to_string();
 
-    let res = MarkKind::Link(LinkAttrs{
+    let res = MarkKind::Link(LinkAttrs {
         collection,
         href,
         id,
@@ -266,15 +298,21 @@ fn get_link_mark_kind(link_kind: &Map<String, Value>) -> Result<MarkKind, String
 fn get_sub_sup_mark_kind(subsup_mark: &Map<String, Value>) -> Result<MarkKind, String> {
     // https://developer.atlassian.com/cloud/jira/platform/apis/document/marks/subsup/
     let Some(attrs) = subsup_mark.get("attrs") else {
-        return Err(String::from("Error: subsup mark does not have an attrs array"));
+        return Err(String::from(
+            "Error: subsup mark does not have an attrs array",
+        ));
     };
 
     let Some(attrs) = attrs.as_object() else {
-        return Err(String::from("Error: subsup mark attrs attribute is not a json object."));
+        return Err(String::from(
+            "Error: subsup mark attrs attribute is not a json object.",
+        ));
     };
 
     let Some(subsup) = attrs.get("subsup") else {
-        return Err(String::from("Error: subsup mark attrs attribute does not contain a subsup element"));
+        return Err(String::from(
+            "Error: subsup mark attrs attribute does not contain a subsup element",
+        ));
     };
 
     let Some(subsup) = subsup.as_str() else {
@@ -284,18 +322,19 @@ fn get_sub_sup_mark_kind(subsup_mark: &Map<String, Value>) -> Result<MarkKind, S
     match subsup {
         "sub" => Ok(MarkKind::SubScript),
         "sup" => Ok(MarkKind::Superscript),
-        _ => Err(String::from("Error subsup value is neither sub nor sup"))
+        _ => Err(String::from("Error subsup value is neither sub nor sup")),
     }
 }
 
-
 fn get_mark_kind(mark: &Value) -> Result<MarkKind, String> {
-    let Some(mark) =  mark.as_object() else {
+    let Some(mark) = mark.as_object() else {
         return Err(String::from("Invalid mark. Expecting json object"));
     };
 
     let Some(kind) = mark.get("type") else {
-        return Err(String::from("Invalid mark kind. Object doesn't have a type"));
+        return Err(String::from(
+            "Invalid mark kind. Object doesn't have a type",
+        ));
     };
 
     let Some(kind) = kind.as_str() else {
@@ -311,23 +350,61 @@ fn get_mark_kind(mark: &Value) -> Result<MarkKind, String> {
         "subsup" => get_sub_sup_mark_kind(mark),
         "textColor" => get_text_colour_mark_kind(mark),
         "underline" => Ok(MarkKind::Underline),
-        _ => Err(format!("Unkown kind of mark. Got {kind}"))
+        _ => Err(format!("Unkown kind of mark. Got {kind}")),
     }
 }
 
 fn text_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
-    if json.get("marks").is_some() {
-        eprintln!("WARNING, marks are ignored for now");
-    }
-    // https://developer.atlassian.com/cloud/jira/platform/apis/document/nodes/text/#marks
-
     // https://developer.atlassian.com/cloud/jira/platform/apis/document/nodes/text/
-
     let content = json
         .get("text")
         .and_then(|x| x.as_str())
         .and_then(|x| Some(x.to_string()))
         .unwrap_or_default();
+
+    let mut content = content;
+    if let Some(marks) = json.get("marks") {
+        if let Some(marks) = marks.as_array() {
+            // https://developer.atlassian.com/cloud/jira/platform/apis/document/nodes/text/#marks
+
+            for mark in marks {
+                content = match get_mark_kind(mark) {
+                    Ok(mark) => match mark {
+                        MarkKind::Code => {
+                            format!("`{content}`")
+                        }
+                        MarkKind::Emphasis => {
+                            format!("/{content}/")
+                        }
+                        MarkKind::Link(lind_attrs) => {
+                            format!("[{content}]({url})", url = lind_attrs.href)
+                        }
+                        MarkKind::Strike => {
+                            format!("~{content}~")
+                        }
+                        MarkKind::Strong => {
+                            format!("*{content}*")
+                        }
+                        MarkKind::Superscript => {
+                            format!("^{{{content}}}")
+                        }
+                        MarkKind::SubScript => {
+                            format!("_{{{content}}}")
+                        }
+                        MarkKind::Colour(_) => content,
+                        MarkKind::Underline => {
+                            format!("_{content}_")
+                        }
+                    },
+                    Err(s) => {
+                        eprintln!("Error with mark: {s}");
+                        content
+                    }
+                }
+            }
+        }
+    }
+    let content = content;
 
     StringWithNodeLevel {
         text: content,
@@ -461,14 +538,14 @@ fn task_item_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
     }
 
     let status = attrs
-      .unwrap()
-      .get("state")
-      .and_then(|x| x.as_str())
-      .unwrap_or_default();
+        .unwrap()
+        .get("state")
+        .and_then(|x| x.as_str())
+        .unwrap_or_default();
     let beginning = match status {
         "TODO" => "☐",
         "DONE" => "☑",
-        _ => "?"
+        _ => "?",
     };
 
     let content_string = array_of_value_to_string(content.unwrap());
@@ -476,7 +553,7 @@ fn task_item_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
 
     StringWithNodeLevel {
         text: res_content,
-        node_level: content_string.node_level
+        node_level: content_string.node_level,
     }
 }
 
@@ -544,8 +621,9 @@ fn panel_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
     let content = indent_with(&content, "| ");
     let padding_dash_len = panel_type.len();
     let padding_dash = "-".repeat(padding_dash_len + 2);
-    let content =
-    format!("/---------- {panel_type} -----------\n{content}\n\\----------{padding_dash}-----------");
+    let content = format!(
+        "/---------- {panel_type} -----------\n{content}\n\\----------{padding_dash}-----------"
+    );
 
     StringWithNodeLevel {
         text: content,
@@ -565,9 +643,7 @@ fn to_html_verbatim(val: &str) -> String {
 }
 
 fn table_cell_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
-    let content = json
-      .get("content")
-      .and_then(|x| x.as_array());
+    let content = json.get("content").and_then(|x| x.as_array());
 
     let Some(content) = content else {
         let content = json_map_to_string(json);
@@ -584,9 +660,7 @@ fn table_cell_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
     }
 }
 fn table_row_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
-    let content = json
-      .get("content")
-      .and_then(|x| x.as_array());
+    let content = json.get("content").and_then(|x| x.as_array());
 
     let Some(content) = content else {
         let content = json_map_to_string(json);
@@ -604,9 +678,7 @@ fn table_row_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
 }
 
 fn table_header_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
-    let content = json
-      .get("content")
-      .and_then(|x| x.as_array());
+    let content = json.get("content").and_then(|x| x.as_array());
 
     let Some(content) = content else {
         let content = json_map_to_string(json);
@@ -624,24 +696,71 @@ fn table_header_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
 }
 
 fn table_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
-  let content = json
-    .get("content")
-    .and_then(|x| x.as_array());
+    let content = json.get("content").and_then(|x| x.as_array());
 
-  let Some(content) = content else {
-      let content = json_map_to_string(json);
-      return to_top_level(content);
-  };
+    let Some(content) = content else {
+        let content = json_map_to_string(json);
+        return to_top_level(content);
+    };
 
-  let html_text = array_of_value_to_string(content);
-  let res_text = format!("<table>{text}</table>", text = html_text.text);
+    let html_text = array_of_value_to_string(content);
+    let res_text = format!("<table>{text}</table>", text = html_text.text);
 
-  let res_text = html2text::from_read(res_text.as_bytes(), 80);
+    let res_text = html2text::from_read(res_text.as_bytes(), 80);
 
     StringWithNodeLevel {
         text: res_text,
         node_level: NodeLevel::TopLevel,
     }
+}
+
+
+fn decision_list_to_string(decision_list: &Map<String, Value>) -> StringWithNodeLevel {
+    // decision list is not documented on https://developer.atlassian.com/cloud/jira/platform/apis/document/
+    // This is taken from looking at the json generated by the ADF builder at
+    // https://developer.atlassian.com/cloud/jira/platform/apis/document/playground/
+    // when creating a decision list
+
+    let Some(content) = decision_list.get("content") else {
+        return json_to_toplevel_string(decision_list);
+    };
+
+    let Some(content) = content.as_array() else {
+        return json_to_toplevel_string(decision_list);
+    };
+
+    let content = content
+      .iter()
+      .map(value_to_string)
+      .map(|a| format!("  decision: {}", a.text))
+      .reduce(|a, b| format!("{a}\n{b}"))
+      .unwrap_or_default();
+
+
+    let res = format!("Decision list:\n{content}");
+
+    StringWithNodeLevel {
+        text: res,
+        node_level: NodeLevel::TopLevel,
+    }
+}
+
+fn decision_item_to_string(decision_item: &Map<String, Value>) -> StringWithNodeLevel {
+    // decision list is not documented on https://developer.atlassian.com/cloud/jira/platform/apis/document/
+    // This is taken from looking at the json generated by the ADF builder at
+    // https://developer.atlassian.com/cloud/jira/platform/apis/document/playground/
+    // when creating a decision list
+
+    let Some(content) = decision_item.get("content") else {
+        return json_to_toplevel_string(decision_item);
+    };
+
+    let Some(content) = content.as_array() else {
+        return json_to_toplevel_string(decision_item);
+    };
+
+    let res = array_of_value_to_string(content);
+    res
 }
 
 fn object_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
@@ -653,6 +772,8 @@ fn object_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
         "blockquote" => blockquote_to_string(json),
         "bulletList" => bullet_list_to_string(json),
         "codeBlock" => codeblock_to_string(json),
+        "decisionList" => decision_list_to_string(json),
+        "decisionItem" => decision_item_to_string(json),
         "doc" => doc_to_string(json),
         "emoji" => emoji_to_string(json),
         "hardBreak" => hardbreak_to_string(json),
@@ -678,7 +799,7 @@ fn object_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
 fn value_to_string(json: &JsonValue) -> StringWithNodeLevel {
     match json {
         Value::Null => to_inline(String::from("null")),
-        Value::Bool(n) => to_inline(n.to_string()),   // String::from(n),
+        Value::Bool(n) => to_inline(n.to_string()), // String::from(n),
         Value::Number(n) => to_inline(n.to_string()), // String::from(n),
         Value::String(n) => to_inline(String::from(n)),
         Value::Array(n) => array_of_value_to_string(n),
@@ -686,20 +807,22 @@ fn value_to_string(json: &JsonValue) -> StringWithNodeLevel {
     }
 }
 
-fn merge_two_string_with_node_level(a: StringWithNodeLevel, b: StringWithNodeLevel) -> StringWithNodeLevel {
-
+fn merge_two_string_with_node_level(
+    a: StringWithNodeLevel,
+    b: StringWithNodeLevel,
+) -> StringWithNodeLevel {
     let separator = match (a.node_level, b.node_level) {
-        (NodeLevel::TopLevel, NodeLevel::TopLevel) => { "\n\n" }
-        (NodeLevel::TopLevel, NodeLevel::ChildNode) => { "\n"}
-        (NodeLevel::TopLevel, NodeLevel::Inline) => { "\n"}
+        (NodeLevel::TopLevel, NodeLevel::TopLevel) => "\n\n",
+        (NodeLevel::TopLevel, NodeLevel::ChildNode) => "\n",
+        (NodeLevel::TopLevel, NodeLevel::Inline) => "\n",
 
-        (NodeLevel::ChildNode, NodeLevel::TopLevel) => { "\n"}
-        (NodeLevel::ChildNode, NodeLevel::ChildNode) => {"\n"}
-        (NodeLevel::ChildNode, NodeLevel::Inline) => {""}
+        (NodeLevel::ChildNode, NodeLevel::TopLevel) => "\n",
+        (NodeLevel::ChildNode, NodeLevel::ChildNode) => "\n",
+        (NodeLevel::ChildNode, NodeLevel::Inline) => "",
 
-        (NodeLevel::Inline, NodeLevel::TopLevel) => {"\n"}
-        (NodeLevel::Inline, NodeLevel::ChildNode) => {"\n"}
-        (NodeLevel::Inline, NodeLevel::Inline) => {""}
+        (NodeLevel::Inline, NodeLevel::TopLevel) => "\n",
+        (NodeLevel::Inline, NodeLevel::ChildNode) => "\n",
+        (NodeLevel::Inline, NodeLevel::Inline) => "",
     };
 
     let content = format!("{a}{separator}{b}", a = a.text, b = b.text);
@@ -714,7 +837,6 @@ fn array_of_value_to_string(content: &Vec<JsonValue>) -> StringWithNodeLevel {
         .iter()
         .map(|x| value_to_string(x))
         .reduce(|a, b| merge_two_string_with_node_level(a, b));
-
 
     res.unwrap_or_else(|| to_inline(String::from("")))
 }
