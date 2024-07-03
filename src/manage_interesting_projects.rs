@@ -85,13 +85,10 @@ pub(crate) struct fields_in_db {
 
 async fn update_issues_in_db(issues_to_insert: &Vec<Issue>, db_conn: &mut Pool<Sqlite>, project_key: &str) {
   let issues_in_db = get_issues_from_db(&db_conn).await;
-  let issues_in_db = match issues_in_db {
-    Ok(v) => v,
-    Err(e) => {
-      eprintln!("Error occurred: {e}");
-      Vec::new()
-    }
-  };
+  let issues_in_db = issues_in_db.unwrap_or_else(|e| {
+    eprintln!("Error occurred: {e}");
+    Vec::new()
+  });
 
   let hashed_issues_in_db = issues_in_db.iter().collect::<HashSet<&Issue>>();
   let issues_to_insert = issues_to_insert

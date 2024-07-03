@@ -2,9 +2,10 @@ use serde_json::Value;
 use sqlx::{Pool, Sqlite};
 use crate::manage_interesting_projects::get_id;
 
+pub(crate)
 struct IssueProperties {
-  issue_id: u32,
-  properties: Vec<(String /* key */, String /* value */)>
+  pub(crate) issue_id: u32,
+  pub(crate) properties: Vec<(String /* key */, String /* value */)>
 }
 
 fn get_issues_properties(json_data: &Value) -> Result<Vec<IssueProperties>, String> {
@@ -19,22 +20,25 @@ fn get_issues_properties(json_data: &Value) -> Result<Vec<IssueProperties>, Stri
   let properties = 
     v.iter()
       .filter_map(|x| {
+
         let Some(issue_id) = get_id(x) else {
           return None;
         };
-        
+
         let Some(x) = x.as_object() else {
           return None;
         };
-        
+
         let Some(fields) = x.get("fields") else {
           return None;
         };
-        
-        let Some(fields) = fields.as_object() else { 
+
+        let Some(fields) = fields.as_object() else {
           return None;
         };
-        
+
+        // todo ensure attachments are added here
+
         let key_values = fields
           .iter()
           .filter_map(|(key, value)| {

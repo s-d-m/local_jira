@@ -1,5 +1,6 @@
 PRAGMA foreign_keys = ON;
 PRAGMA busy_timeout = 5000; -- Release lock after 5 seconds
+PRAGMA journal_mode = WAL;
 
 BEGIN;
 
@@ -84,6 +85,18 @@ CREATE TABLE IF NOT EXISTS watcher (
     Issue INTEGER,
     FOREIGN KEY (person) REFERENCES people(accountId),
     FOREIGN KEY (Issue) REFERENCES Issue(jira_id)
+);
+
+CREATE TABLE IF NOT EXISTS Attachment (
+  uuid TEXT UNIQUE,
+  id INTEGER UNIQUE PRIMARY KEY NOT NULL,
+  issue_id INTEGER NOT NULL,
+  filename TEXT NOT NULL,
+  mime_type TEXT,
+  file_size INT NOT NULL,
+  content_data BLOB,
+
+  FOREIGN KEY (issue_id) REFERENCES Issue(jira_id)
 );
 
 COMMIT;
