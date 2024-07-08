@@ -10,6 +10,7 @@ use sqlx::{Execute, Executor, FromRow, Pool, Sqlite, SqlitePool, Statement};
 use sqlx::migrate::MigrateDatabase;
 
 use crate::get_config::{Config, get_config};
+use crate::get_issue_details::add_details_to_issue_in_db;
 use crate::manage_interesting_projects::update_interesting_projects_in_db;
 use crate::manage_field_table::update_fields_in_db;
 use crate::manage_issuetype_table::update_issue_types_in_db;
@@ -32,6 +33,7 @@ mod manage_project_table;
 mod manage_issue_field;
 mod server;
 mod atlassian_document_format;
+mod get_issue_details;
 
 async fn init_db(db_path: &std::path::PathBuf) -> Result<Pool<Sqlite>, String> {
 

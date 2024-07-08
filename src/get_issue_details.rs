@@ -209,9 +209,10 @@ struct AttachmentWithFileDetails {
   filename: String,
   mime_type: String,
   size: Option<i64>,
-  uuid: String,
+  uuid: Option<String>,
   issue_id: u32,
 }
+
 
 fn add_details_to_attachment(issue_id: u32, attachment: IssueAttachment) -> AttachmentWithFileDetails {
   // the uuid extraction is based on what jira does internally.
@@ -229,14 +230,13 @@ fn add_details_to_attachment(issue_id: u32, attachment: IssueAttachment) -> Atta
   let end_uuid = attachment.filename.rfind(')');
 
   let uuid = match (begin_uuid, end_uuid) {
-    (Some(b), Some(e)) if e == b + 37 => {
-      // 37 == sizeof uuid
-      &attachment.filename[(b+1)..e]
+    (Some(b), Some(e)) => {
+      Some(&attachment.filename[(b+1)..e])
     },
-    _ => ""
+    _ => None
   };
 
-  let uuid = uuid.to_string();
+  let uuid = uuid.map(|x| x.to_string());
   let attachment_id = attachment.attachment_id;
 
   AttachmentWithFileDetails {
