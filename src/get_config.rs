@@ -13,6 +13,8 @@ struct FileOnDiskConfig {
     api_token: Option<String>, // taken from environment variable when not passed.
     local_database: Option<std::path::PathBuf>,
     interesting_projects: Option<Vec<String>>,
+    max_file_size_to_download: Option<i64>,
+    mozilla_cookies_db: Option<std::path::PathBuf>,
 }
 
 
@@ -24,6 +26,7 @@ pub(crate) struct Config {
     auth_token: String, // derived from user_login and api_token
     local_database: std::path::PathBuf,
     interesting_projects: Vec<String>,
+    mozilla_cookies_db: Option<std::path::PathBuf>,
 }
 
 impl Config {
@@ -45,6 +48,7 @@ impl Config {
     pub fn auth_token(&self) -> &str {
         &self.auth_token
     }
+    pub fn get_mozilla_cookies_db(&self) -> &Option<std::path::PathBuf> { &self.mozilla_cookies_db }
 }
 
 fn api_token_from_env() -> Result<String, String> {
@@ -90,6 +94,8 @@ pub(crate) fn get_config(filepath: &std::path::Path) -> Result<Config, String> {
         Some(x) => {x}
     };
 
+    let mozilla_cookies_db = conf.mozilla_cookies_db;
+
     let server_address = conf.server_address;
     let user_login = conf.user_login;
     let auth_token = base64::engine::general_purpose::STANDARD.encode(format!("{user_login}:{api_token}").as_str());
@@ -100,7 +106,8 @@ pub(crate) fn get_config(filepath: &std::path::Path) -> Result<Config, String> {
         api_token,
         local_database,
         interesting_projects,
-        auth_token
+        auth_token,
+        mozilla_cookies_db
     };
 
     Ok(conf)

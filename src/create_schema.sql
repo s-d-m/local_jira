@@ -1,6 +1,7 @@
 PRAGMA foreign_keys = ON;
 PRAGMA busy_timeout = 5000; -- Release lock after 5 seconds
 PRAGMA journal_mode = WAL;
+PRAGMA case_sensitive_like = ON;
 
 BEGIN;
 

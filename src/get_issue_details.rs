@@ -1,3 +1,4 @@
+use std::io::Read;
 use html2text::parse;
 use crate::get_config::Config;
 use crate::get_json_from_url::get_json_from_url;
@@ -6,6 +7,8 @@ use crate::manage_issue_field::IssueProperties;
 use serde_json::Value;
 use sqlx::types::JsonValue;
 use sqlx::{Error, FromRow, Pool, Sqlite};
+use sqlx::sqlite::SqliteRow;
+use crate::get_attachment_content::get_bytes_content;
 
 async fn get_one_json(config: &Config, issue_keu: &str) -> Result<JsonValue, String> {
     let query = format!("/rest/api/3/issue/{issue_keu}");
@@ -204,6 +207,12 @@ struct AttachmentId {
   id: i64,
 }
 
+#[derive(FromRow)]
+struct AttachmentIdAndFileSize {
+  id: i64,
+  file_size: i64,
+}
+
 struct AttachmentWithFileDetails {
   attachment_id: i64,
   filename: String,
@@ -378,6 +387,104 @@ async fn delete_attachments_in_db_but_not_in_server(db_conn: &mut Pool<Sqlite>, 
   (has_error, row_affected)
 }
 
+async fn download_attachments_for_missing_content(
+  config: &Config,
+  issue_id: u32,
+  db_conn: &mut Pool<Sqlite>
+) {
+  let query_str =
+    "SELECT id, file_size  FROM Attachment
+     WHERE issue_id = ?
+       AND content_data IS NULL;";
+  let mut tx = db_conn
+    .begin()
+    .await
+    .expect("Error when starting a sql transaction");
+
+  let query_res = sqlx::query_as::<_, AttachmentIdAndFileSize>(query_str)
+    .bind(issue_id)
+    .fetch_all(&mut *tx)
+    .await;
+  tx.commit().await.unwrap();
+
+  let query_res = match query_res {
+    Ok(e) => { e }
+    Err(e) => {
+      eprintln!("Error while getting list of attachments belong to issue {issue_id} without content {e}");
+      return;
+    }
+  };
+
+  // todo: parallelise this loop
+  for AttachmentIdAndFileSize{id, file_size} in query_res {
+    let f_data = get_bytes_content(&config, id).await;
+    let bytes = f_data.bytes;
+    match bytes {
+      None => {}
+      Some(v) => {
+        let len = v.len();
+        if len == file_size as usize {
+
+          eprintln!("INSERTING BLOB with len {file_size} for attachment {id}");
+
+          let query_str =  "UPDATE Attachment
+                                   SET content_data = ?
+                                   WHERE id = ?;";
+
+          let mut tx = db_conn
+            .begin()
+            .await
+            .expect("Error when starting a sql transaction");
+
+          let query_res = sqlx::query(query_str)
+            .bind(v)
+            .bind(id)
+            .fetch_all(&mut *tx)
+            .await;
+          tx.commit().await.unwrap();
+
+          match query_res {
+            Ok(e) => {eprintln!("{x} row updated ", x = e.len());}
+            Err(e) => {eprintln!("Error: {e}");}
+          }
+
+        } else {
+          eprintln!("Can't update attachment with id {id} because the downloaded content has the wrong size. Expected {file_size}, got {len}");
+        }
+      }
+    }
+    let uuid = f_data.uuid;
+    match uuid {
+      None => {
+        eprintln!("Can't update the uuid of attachment with id {id} because none was found");
+      }
+      Some(uuid) => {
+        let query_str =  "UPDATE Attachment
+                                   SET uuid = ?
+                                   WHERE id = ?;";
+
+        let mut tx = db_conn
+          .begin()
+          .await
+          .expect("Error when starting a sql transaction");
+
+        let query_res = sqlx::query(query_str)
+          .bind(uuid)
+          .bind(id)
+          .fetch_all(&mut *tx)
+          .await;
+        tx.commit().await.unwrap();
+
+        match query_res {
+          Ok(e) => {eprintln!("{x} row updated ", x = e.len());}
+          Err(e) => {eprintln!("Error: {e}");}
+        }
+      }
+    }
+  }
+
+}
+
 pub(crate) async fn add_details_to_issue_in_db(
     config: &Config,
     issue_keu: &str,
@@ -401,4 +508,5 @@ pub(crate) async fn add_details_to_issue_in_db(
     insert_properties_into_db(&properties, db_conn).await;
     let attachments = get_attachments_in_db_for_issue(issue_id, config, db_conn).await;
     update_attachments_in_db(config, issue_id, attachments, db_conn).await;
+    download_attachments_for_missing_content(config, issue_id, db_conn).await;
 }
