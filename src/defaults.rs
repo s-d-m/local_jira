@@ -17,4 +17,12 @@ local_database = "path to the database file"
 # List of jira project keys you are interesting in. This is the name part in the jira ticket
 # numbers. E.g. for a jira ticket COMPANYPROJECT-1234, the project key is COMPANYPROJECT
 interesting_projects = [ "PRJKEYONE", "PRJKEYTWO", "PRJKEYTHREE" ]
+
+# Unfortunately jira doesn't provide an option to download ticket attachments through
+# an API using the JIRA_API_TOKEN. At least I didn't find a solution.
+#  The workaround is instead to ask the user to log
+# into jira using firefox, and provide the path to the cookie file containing the tenant
+# session cookie. local_jira will retrieve that cookie and download attachment files
+# with it. Without this cookie, No attachment file will be downloaded.
+mozilla_cookies_db = "/Path/to/Mozilla/Firefox/Profiles/<profile key>/cookies.sqlite"
 "##;
