@@ -2,6 +2,10 @@ PRAGMA foreign_keys = ON;
 PRAGMA busy_timeout = 5000; -- Release lock after 5 seconds
 PRAGMA journal_mode = WAL;
 PRAGMA case_sensitive_like = ON;
+PRAGMA synchronous=NORMAL;
+PRAGMA mmap_size = 134217728;
+PRAGMA journal_size_limit = 27103364;
+PRAGMA cache_size=2000;
 
 BEGIN;
 
