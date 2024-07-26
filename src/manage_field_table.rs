@@ -50,46 +50,55 @@ async fn get_fields_from_server(config: &Config) -> Result<Vec<Field>, String>{
     .filter_map(|x| {
 //      dbg!(x);
       let Some(x) = x.as_object() else {
+        eprintln!("Unexpected data. data should be a json object. data is {x} instead", x=x.to_string());
         return None;
       };
 //      dbg!(x);
       let Some(jira_id) = x.get("id") else {
+        eprintln!("Unexpected data. 'id' field is missing from data. data is {x:?} instead");
         return None;
       };
       let Some(jira_id) = jira_id.as_str() else {
-         return None;
+        eprintln!("Unexpected data. 'jira_id' should be a string. it is {x} instead", x=jira_id.to_string());
+        return None;
       };
 //      dbg!(jira_id);
       let Some(human_name) = x.get("name") else {
+        eprintln!("Unexpected data. 'name' field is missing from data. data is {x:?} instead");
         return None;
       };
       let Some(human_name) = human_name.as_str() else {
+        eprintln!("Unexpected data. 'name' field should be a string. it is {x} instead", x=human_name.to_string());
         return None;
       };
 //      dbg!(human_name);
       let Some(key) = x.get("key") else {
+        eprintln!("Unexpected data. 'key' field is missing from data. data is {x:?} instead");
         return None;
       };
       let Some(key) = key.as_str() else {
+        eprintln!("Unexpected data. 'key' field should be string. key is {x} instead", x=key.to_string());
         return None;
       };
 //      dbg!(key);
       let Some(schema) = x.get("schema") else {
+        eprintln!("Unexpected data. 'schema' field is missing from data. data is {x:?} instead");
         return None;
       };
-      let schema = schema.to_string();
       let Some(custom) = x.get("custom") else {
+        eprintln!("Unexpected data. 'custom' field is missing from data. data is {x:?} instead");
         return None;
       };
 //      dbg!(custom);
       let Some(is_custom) = custom.as_bool() else {
+        eprintln!("Unexpected data. 'custom' field should be a boolean. It is {custom:?} instead");
         return None;
       };
       Some(Field {
         jira_id: jira_id.to_string(),
         key: key.to_string(),
         human_name: human_name.to_string(),
-        schema,
+        schema: schema.to_string(),
         is_custom,
       })
     })
