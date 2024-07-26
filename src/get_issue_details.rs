@@ -1,22 +1,24 @@
 use std::io::Read;
+use std::num::ParseIntError;
 use html2text::parse;
 use crate::get_config::Config;
 use crate::get_json_from_url::get_json_from_url;
-use crate::manage_interesting_projects::get_id;
+use crate::manage_interesting_projects::{get_id, Issue};
 use crate::manage_issue_field::IssueProperties;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use sqlx::types::JsonValue;
 use sqlx::{Error, FromRow, Pool, Sqlite};
 use sqlx::sqlite::SqliteRow;
 use crate::get_attachment_content::get_bytes_content;
+use crate::manage_issue_comments::add_comments_for_issue_into_db;
 
-async fn get_one_json(config: &Config, issue_keu: &str) -> Result<JsonValue, String> {
-    let query = format!("/rest/api/3/issue/{issue_keu}");
+async fn get_one_json(config: &Config, issue_key: &str) -> Result<JsonValue, String> {
+    let query = format!("/rest/api/3/issue/{issue_key}");
     let json_data = get_json_from_url(config, query.as_str()).await;
     let Ok(json_data) = json_data else {
         return Err(format!(
-            "Error: failed to get detail for issue {issue_keu} from server.\n{e}",
-            e = json_data.err().unwrap().to_string()
+          "Error: failed to get detail for issue {issue_key} from server.\n{e}",
+          e = json_data.err().unwrap().to_string()
         ));
     };
     Ok(json_data)
@@ -482,7 +484,6 @@ async fn download_attachments_for_missing_content(
       }
     }
   }
-
 }
 
 pub(crate) async fn add_details_to_issue_in_db(
@@ -509,4 +510,5 @@ pub(crate) async fn add_details_to_issue_in_db(
     let attachments = get_attachments_in_db_for_issue(issue_id, config, db_conn).await;
     update_attachments_in_db(config, issue_id, attachments, db_conn).await;
     download_attachments_for_missing_content(config, issue_id, db_conn).await;
+    add_comments_for_issue_into_db(config, issue_id, db_conn).await;
 }

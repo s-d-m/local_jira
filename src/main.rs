@@ -35,6 +35,7 @@ mod server;
 mod atlassian_document_format;
 mod get_issue_details;
 mod get_attachment_content;
+mod manage_issue_comments;
 
 async fn init_db(db_path: &std::path::PathBuf) -> Result<Pool<Sqlite>, String> {
 

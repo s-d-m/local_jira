@@ -9,7 +9,7 @@ PRAGMA cache_size=2000;
 
 BEGIN;
 
-CREATE TABLE IF NOT EXISTS people (
+CREATE TABLE IF NOT EXISTS People (
    accountId TEXT UNIQUE PRIMARY KEY NOT NULL,
    displayName TEXT UNIQUE NOT NULL
 );
@@ -103,5 +103,21 @@ CREATE TABLE IF NOT EXISTS Attachment (
 
   FOREIGN KEY (issue_id) REFERENCES Issue(jira_id)
 );
+
+CREATE TABLE IF NOT EXISTS Comment (
+  id INTEGER UNIQUE PRIMARY KEY NOT NULL,
+  issue_id INTEGER,
+  position_in_array INTEGER NOT NULL,
+  content_data TEXT,
+  author TEXT,
+  creation_time TEXT,
+  last_modification_time TEXT,
+
+  FOREIGN KEY (issue_id) REFERENCES Issue(jira_id),
+  FOREIGN KEY (author) REFERENCES People(accountId),
+  UNIQUE(id, position_in_array)
+);
+
+CREATE INDEX IF NOT EXISTS comment_issue ON Comment(issue_id, position_in_array);
 
 COMMIT;
