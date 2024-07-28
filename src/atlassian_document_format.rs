@@ -967,12 +967,36 @@ fn array_of_value_to_string(content: &[JsonValue]) -> StringWithNodeLevel {
 }
 
 pub(crate) fn root_elt_doc_to_string(description: &JsonValue) -> String {
-    let res = description
-        .as_object()
-        .and_then(|x| x.get("content"))
-        .and_then(serde_json::value::Value::as_array)
-        .and_then(|x| Some(array_of_value_to_string(x).text))
-        .unwrap_or_else(|| description.to_string());
+    let Some(val) = description.as_object() else {
+        eprintln!("description is not a json object. It is {x}", x = description.to_string());
+        return description.to_string();
+    };
 
+    let Some(type_val) = val.get("type") else {
+        eprintln!("description is invalid. Must have a type key. It is {val:?}");
+        return description.to_string();
+    };
+
+    let Some(type_val) = type_val.as_str() else {
+        eprintln!("description is invalid. type key must be string It is {type_val:?}");
+        return description.to_string();
+    };
+
+    if type_val.to_string() != "doc" {
+        eprintln!("description is invalid. type key must be 'doc'. It is {type_val}");
+        return description.to_string();
+    }
+
+    let Some(content) = val.get("content") else {
+        eprintln!("val does not contain a element named 'content'. It is {val:?}");
+        return description.to_string();
+    };
+
+    let Some(content) = content.as_array() else {
+        eprintln!("val is not an array. It is {x}", x = content.to_string());
+        return description.to_string();
+    };
+
+    let res = array_of_value_to_string(content).text;
     res
 }
