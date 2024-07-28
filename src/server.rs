@@ -20,6 +20,14 @@ struct Field {
   schema: JsonValue,
 }
 
+#[derive(FromRow, Debug)]
+struct Comment {
+  data: JsonValue,
+  author: String,
+  creation_time: String,
+  last_modification: String,
+}
+
 
 async fn get_jira_ticket_as_markdown(jira_key: &str, db_conn: &Pool<Sqlite>) -> Result<String, String> {
   // query returns {jira_key} is satisfied by {all these other keys}
@@ -118,6 +126,37 @@ async fn get_jira_ticket_as_markdown(jira_key: &str, db_conn: &Pool<Sqlite>) -> 
     .reduce(|a, b| { format!("{a}\n{b}")})
     .unwrap_or_default();
 
+  let comments_query_str =
+    "SELECT content_data as data, displayName as author, creation_time, last_modification_time as last_modification
+     FROM Comment
+     JOIN People
+       ON People.accountId = Comment.author
+     Where issue_id = (SELECT jira_id from Issue WHERE key = ?)
+     ORDER BY position_in_array ASC";
+
+  let comments = sqlx::query_as::<_, Comment>(comments_query_str)
+    .bind(jira_key)
+    .fetch_all(db_conn)
+    .await;
+  let comments = comments.unwrap_or_else(|x| {
+    eprintln!("Error retrieving custom fields of ticket {jira_key}: {x:?}");
+    vec![]
+  });
+
+  let comments = comments
+    .iter()
+    .map(|x| {
+      let author = &x.author;
+      let creation = &x.creation_time;
+      let last_modification = &x.last_modification;
+      let data = root_elt_doc_to_string(&x.data);
+      format!("comment from: {author}
+last edited on: {last_modification}
+{data}")
+    })
+    .reduce(|a, b| format!("{a}\n\n{b}"))
+    .unwrap_or_default();
+
   let res = format!(
     "{jira_key}: {summary}
 =========
@@ -132,6 +171,7 @@ Links:
 
 Comments:
 -----
+{comments}
 ");
   Ok(res)
 }
