@@ -109,6 +109,14 @@ async fn insert_issue_link_types_to_database(db_conn: &mut Pool<Sqlite>, issue_l
   // passed in a query.
   // splitting an iterator in chunks would come in handy here.
 
+  // todo(perf): add detection of what is already in db and do some filter out. Here we happily
+  // overwrite data with the exact same ones, thus taking the write lock on the
+  // database for longer than necessary.
+  // Plus it means the logs aren't that useful to troubleshoot how much data changed
+  // in the database. Seeing messages saying
+  // 'updated Issue fields in database: 58 rows were updated'
+  // means there has been at most 58 changes. Chances are there are actually been
+  // none since the last update.
   let query_str =
     "INSERT INTO IssueLinkType (jira_id, name, outward_name, inward_name) VALUES
                 (?, ?, ?, ?)

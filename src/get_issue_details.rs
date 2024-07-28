@@ -71,7 +71,15 @@ async fn get_properties_from_json(
 }
 
 async fn insert_properties_into_db(issue_properties: &IssueProperties, db_conn: &mut Pool<Sqlite>) {
-    let query_str = "INSERT INTO IssueField (issue_id, field_id, field_value)
+  // todo(perf): add detection of what is already in db and do some filter out. Here we happily
+  // overwrite data with the exact same ones, thus taking the write lock on the
+  // database for longer than necessary.
+  // Plus it means the logs aren't that useful to troubleshoot how much data changed
+  // in the database. Seeing messages saying
+  // 'updated Issue fields in database: 58 rows were updated'
+  // means there has been at most 58 changes. Chances are there are actually been
+  // none since the last update.
+  let query_str = "INSERT INTO IssueField (issue_id, field_id, field_value)
                       VALUES (?, ?, ?)
                       ON CONFLICT DO
                       UPDATE SET field_value = excluded.field_value;";
@@ -302,6 +310,14 @@ async fn update_attachments_in_db(config: &Config, issue_id: u32, attachments: V
 
 
   // Add attachments which are in the remote server but not yet in the database
+  // todo(perf): add detection of what is already in db and do some filter out. Here we happily
+  // overwrite data with the exact same ones, thus taking the write lock on the
+  // database for longer than necessary.
+  // Plus it means the logs aren't that useful to troubleshoot how much data changed
+  // in the database. Seeing messages saying
+  // 'updated Issue fields in database: 58 rows were updated'
+  // means there has been at most 58 changes. Chances are there are actually been
+  // none since the last update.
   let query_str =
     "INSERT INTO Attachment (uuid, id, issue_id, filename, mime_type, file_size)
      VALUES (?, ?, ?, ?, ?, ?)

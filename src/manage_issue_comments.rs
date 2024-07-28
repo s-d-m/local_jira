@@ -270,6 +270,15 @@ async fn add_comments_in_db(comments: &[commentFromJson], db_conn: &mut Pool<Sql
     // for the SQLITE_LIMIT_VARIABLE_NUMBER maximum number of parameters that can be
     // passed in a query.
     // splitting an iterator in chunks would come in handy here.
+
+    // todo(perf): add detection of what is already in db and do some filter out. Here we happily
+    // overwrite data with the exact same ones, thus taking the write lock on the
+    // database for longer than necessary.
+    // Plus it means the logs aren't that useful to troubleshoot how much data changed
+    // in the database. Seeing messages saying
+    // 'updated Issue fields in database: 58 rows were updated'
+    // means there has been at most 58 changes. Chances are there are actually been
+    // none since the last update.
     let query_str = "INSERT INTO People (accountId, displayName) VALUES
                 (?, ?)
             ON CONFLICT DO
@@ -311,6 +320,15 @@ async fn add_comments_in_db(comments: &[commentFromJson], db_conn: &mut Pool<Sql
     // for the SQLITE_LIMIT_VARIABLE_NUMBER maximum number of parameters that can be
     // passed in a query.
     // splitting an iterator in chunks would come in handy here.
+
+    // todo(perf): add detection of what is already in db and do some filter out. Here we happily
+    // overwrite data with the exact same ones, thus taking the write lock on the
+    // database for longer than necessary.
+    // Plus it means the logs aren't that useful to troubleshoot how much data changed
+    // in the database. Seeing messages saying
+    // 'updated Issue fields in database: 58 rows were updated'
+    // means there has been at most 58 changes. Chances are there are actually been
+    // none since the last update.
     let query_str = "INSERT INTO Comment (id, issue_id, position_in_array, content_data, author,
                           creation_time, last_modification_time
                           ) VALUES

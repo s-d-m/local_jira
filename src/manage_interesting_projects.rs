@@ -116,6 +116,14 @@ async fn update_issues_in_db(issues_to_insert: &Vec<Issue>, db_conn: &mut Pool<S
   // passed in a query.
   // splitting an iterator in chunks would come in handy here.
 
+  // todo(perf): add detection of what is already in db and do some filter out. Here we happily
+  // overwrite data with the exact same ones, thus taking the write lock on the
+  // database for longer than necessary.
+  // Plus it means the logs aren't that useful to troubleshoot how much data changed
+  // in the database. Seeing messages saying
+  // 'updated Issue in database: 58 rows were updated'
+  // means there has been at most 58 changes. Chances are there are actually been
+  // none since the last update.
   let query_str =
     "INSERT INTO Issue (jira_id, key, project_key) VALUES
                 (?, ?, ?)
@@ -301,6 +309,14 @@ async fn update_issue_links_in_db(issue_links: &Vec<IssueLink>, db_conn: &mut Po
   // passed in a query.
   // splitting an iterator in chunks would come in handy here.
 
+  // todo(perf): add detection of what is already in db and do some filter out. Here we happily
+  // overwrite data with the exact same ones, thus taking the write lock on the
+  // database for longer than necessary.
+  // Plus it means the logs aren't that useful to troubleshoot how much data changed
+  // in the database. Seeing messages saying
+  // 'updated Issue in database: 58 rows were updated'
+  // means there has been at most 58 changes. Chances are there are actually been
+  // none since the last update.
   let query_str =
     "INSERT INTO IssueLink (jira_id, link_type_id, outward_issue_id, inward_issue_id) VALUES
                 (?, ?, ?, ?)

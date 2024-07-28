@@ -66,7 +66,15 @@ async fn fill_issues_fields(json_data: &Value, db_conn: &mut Pool<Sqlite>) {
     eprintln!("Error: {e}", e = properties.err().unwrap());
     return;
   };
-  
+
+  // todo(perf): add detection of what is already in db and do some filter out. Here we happily
+  // overwrite data with the exact same ones, thus taking the write lock on the
+  // database for longer than necessary.
+  // Plus it means the logs aren't that useful to troubleshoot how much data changed
+  // in the database. Seeing messages saying
+  // 'updated Issue fields in database: 58 rows were updated'
+  // means there has been at most 58 changes. Chances are there are actually been
+  // none since the last update.
   let query_str = "INSERT INTO IssueField (issue_id, field_id, field_value)
                       VALUES (?, ?, ?)
                       ON CONFLICT DO
