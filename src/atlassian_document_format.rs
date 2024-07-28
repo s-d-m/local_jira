@@ -3,7 +3,7 @@ use serde::de::Unexpected::Str;
 use serde_json::{Map, Value};
 use sqlx::types::JsonValue;
 use std::fmt::format;
-use toml::to_string;
+use toml::{to_string, to_string_pretty};
 
 // specification of the atlassatian documentation format is available at
 // https://developer.atlassian.com/cloud/jira/platform/apis/document/structure/
@@ -29,7 +29,15 @@ fn indent_with(text: &str, lines_starter: &str) -> String {
 }
 
 fn json_map_to_string(json: &Map<String, Value>) -> String {
-    JsonValue::Object(json.clone()).to_string()
+    let tmp = JsonValue::Object(json.clone()).to_string();
+    let tmp_pretty = serde_json::from_str::<serde_json::Value>(&tmp);
+    let tmp_pretty = tmp_pretty.and_then(|value: JsonValue| serde_json::to_string_pretty(&value));
+    match tmp_pretty {
+        Ok(v) => v,
+        Err(e) => {
+            return tmp;
+        }
+    }
 }
 
 fn to_inline(content: String) -> StringWithNodeLevel {
@@ -781,6 +789,100 @@ fn decision_item_to_string(decision_item: &Map<String, Value>) -> StringWithNode
     res
 }
 
+fn media_to_string(media: &Map<String, Value>) -> StringWithNodeLevel {
+    let res_str = json_map_to_string(media);
+
+    // the media node doesn't really fit for a text output.
+    // could try to do interesting things like displaying images in the terminal,
+    // create clickable links for terminals supporting them etc
+    // instead, just dump the json here.
+    
+    StringWithNodeLevel {
+        text: res_str,
+        node_level: NodeLevel::ChildNode,
+    }
+}
+
+fn media_single_to_string(media_single_item: &Map<String, Value>) -> StringWithNodeLevel {
+    let Some(content) = media_single_item.get("content") else {
+        return json_to_toplevel_string(media_single_item);
+    };
+
+    let Some(content) = content.as_array() else {
+        return json_to_toplevel_string(media_single_item);
+    };
+
+    let content = match &content[..] {
+        [elt] => elt,
+        _ => {return json_to_toplevel_string(media_single_item);}
+    };
+
+    let Some(value) = content.as_object() else {
+        return json_to_toplevel_string(media_single_item);
+    };
+
+    let Some(value_type) = value.get("type") else {
+        return json_to_toplevel_string(media_single_item);
+    };
+
+    let Some(value_type) = value_type.as_str() else {
+        return json_to_toplevel_string(media_single_item);
+    };
+
+    let media = match value_type {
+        "media" => value,
+        _ => return json_to_toplevel_string(media_single_item),
+    };
+
+    // mediaSingle contains a single media element, and have the following attributes:
+    // - layout (wrap-left / center / ... / wide / ...)
+    // - width (optional)
+    // - widthType (pixels or percentage)
+    // These attributes do not hold for a simple text format. Hence let's
+    // ignore them and treat the mediaSingle node, like a media node.
+
+    let res = media_to_string(media);
+    StringWithNodeLevel {
+        text: res.text,
+        node_level: NodeLevel::TopLevel,
+    }
+}
+
+fn media_group_to_string(media_group_item: &Map<String, Value>) -> StringWithNodeLevel {
+    let Some(content) =  media_group_item.get("content") else {
+        return json_to_toplevel_string(media_group_item);
+    };
+
+    let Some(content) = content.as_array() else {
+        return json_to_toplevel_string(media_group_item);
+    };
+
+    let are_all_medias = content
+      .iter()
+      .all(|x| {
+          let Some(x) = x.as_object() else {
+              return false;
+          };
+          let Some(type_v) = x.get("type") else {
+              return false;
+          };
+          let Some(type_v) = type_v.as_str() else {
+              return false;
+          };
+          type_v == "media"
+      });
+
+    if !are_all_medias {
+        return json_to_toplevel_string(media_group_item);
+    }
+    
+    let res = array_of_value_to_string(content.as_ref());
+    StringWithNodeLevel {
+        text: res.text,
+        node_level: NodeLevel::TopLevel,
+    }
+}
+
 fn object_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
     let Some(type_elt) = json.get("type").and_then(|x| x.as_str()) else {
         return json_to_toplevel_string(json);
@@ -798,7 +900,9 @@ fn object_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
         "heading" => heading_to_string(json),
         // "inlineCard" => inlinecard_to_string(json),
         "listItem" => list_item_to_string(json),
-        // media => todo!(),
+        "media" => media_to_string(json),
+        "mediaSingle" => media_single_to_string(json),
+        "mediaGroup" => media_group_to_string(json),
         "mention" => mention_to_string(json),
         "orderedList" => ordered_list_to_string(json),
         "panel" => panel_to_string(json),
@@ -850,7 +954,7 @@ fn merge_two_string_with_node_level(
     }
 }
 
-fn array_of_value_to_string(content: &Vec<JsonValue>) -> StringWithNodeLevel {
+fn array_of_value_to_string(content: &[JsonValue]) -> StringWithNodeLevel {
     let res = content
         .iter()
         .map(value_to_string)
