@@ -1,11 +1,11 @@
 use crate::get_config::Config;
 use crate::get_json_from_url::get_json_from_url;
 use crate::manage_field_table::Field;
+use crate::manage_interesting_projects::Issue;
 use sqlx::sqlite::SqliteQueryResult;
 use sqlx::types::JsonValue;
 use sqlx::{Error, FromRow, Pool, Sqlite};
 use std::collections::{HashMap, HashSet};
-use crate::manage_interesting_projects::Issue;
 
 #[derive(Debug)]
 struct Author {
@@ -304,15 +304,15 @@ async fn add_comments_in_db(comments: &[commentFromJson], db_conn: &mut Pool<Sql
         }
     }
 
-  if has_error {
-    eprintln!("Error occurred while updating the database with Authors")
-  } else {
-    eprintln!("updated Authors in database: {row_affected} rows were updated")
-  }
+    if has_error {
+        eprintln!("Error occurred while updating the database with Authors")
+    } else {
+        eprintln!("updated Authors in database: {row_affected} rows were updated")
+    }
 
-  let mut has_error = false;
-  let mut row_affected = 0;
-  
+    let mut has_error = false;
+    let mut row_affected = 0;
+
     // todo(perf): these insert are likely very inefficient since we insert
     // one element at a time instead of doing bulk insert.
     // check https://stackoverflow.com/questions/65789938/rusqlite-insert-multiple-rows
@@ -397,9 +397,9 @@ pub async fn add_comments_for_issue_into_db(
         get_comments_in_db_not_in_remote(comments_in_remote.as_ref(), comments_ids_in_db.as_ref());
 
     let comments_to_remove = comments_to_remove
-      .into_iter()
-      .map(|x| IssueId{ id: x.id})
-      .collect::<Vec<_>>();
+        .into_iter()
+        .map(|x| IssueId { id: x.id })
+        .collect::<Vec<_>>();
 
     remove_comments_no_longer_on_remote(comments_to_remove.as_ref(), db_conn).await;
     add_comments_in_db(comments_in_remote.as_ref(), db_conn).await;
