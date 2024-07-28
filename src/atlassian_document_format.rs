@@ -791,6 +791,9 @@ fn decision_item_to_string(decision_item: &Map<String, Value>) -> StringWithNode
 
 fn media_to_string(media: &Map<String, Value>) -> StringWithNodeLevel {
     let res_str = json_map_to_string(media);
+    let res_str = format!("```json
+{res_str}
+```");
 
     // the media node doesn't really fit for a text output.
     // could try to do interesting things like displaying images in the terminal,
