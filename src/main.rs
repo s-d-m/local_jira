@@ -8,6 +8,7 @@ use base64::Engine;
 use sqlx;
 use sqlx::{Execute, Executor, FromRow, Pool, Sqlite, SqlitePool, Statement};
 use sqlx::migrate::MigrateDatabase;
+use crate::find_issues_that_need_updating::get_issues_that_need_updating;
 
 use crate::get_config::{Config, get_config};
 use crate::get_issue_details::add_details_to_issue_in_db;
@@ -36,6 +37,7 @@ mod atlassian_document_format;
 mod get_issue_details;
 mod get_attachment_content;
 mod manage_issue_comments;
+mod find_issues_that_need_updating;
 
 async fn init_db(db_path: &std::path::PathBuf) -> Result<Pool<Sqlite>, String> {
 

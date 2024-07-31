@@ -445,6 +445,7 @@ async fn download_attachments_for_missing_content(
 
           eprintln!("INSERTING BLOB with len {file_size} for attachment {id}");
 
+          // todo(perf) only update if there is a change
           let query_str =  "UPDATE Attachment
                                    SET content_data = ?
                                    WHERE id = ?;";
@@ -516,7 +517,7 @@ pub(crate) async fn add_details_to_issue_in_db(
     let properties = match properties {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("{}\n", e);
+            eprintln!("Err: {e}\n");
             return;
         }
     };
