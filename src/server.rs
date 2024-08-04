@@ -10,7 +10,8 @@ use crate::atlassian_document_format::root_elt_doc_to_string;
 #[derive(FromRow, Debug)]
 struct Relations {
   link_name: String,
-  other_issue_keys: String,
+  other_issue_key: String,
+  other_issue_summary: Option<String>,
 }
 
 #[derive(FromRow, Debug)]
@@ -32,25 +33,29 @@ struct Comment {
 async fn get_jira_ticket_as_markdown(jira_key: &str, db_conn: &Pool<Sqlite>) -> Result<String, String> {
   // query returns {jira_key} is satisfied by {all these other keys}
   let inward_relations_query = "
-    SELECT DISTINCT inward_name AS link_name, GROUP_CONCAT(key, ',') AS other_issue_keys
+    SELECT DISTINCT IssueLinkType.inward_name AS link_name, Issue.key as other_issue_key, IssueField.field_value AS other_issue_summary
     FROM Issue
     JOIN IssueLink ON IssueLink.inward_issue_id = Issue.jira_id
     JOIN IssueLinkType ON IssueLinkType.jira_id = IssueLink.link_type_id
+    JOIN IssueField ON IssueField.issue_id = IssueLink.inward_issue_id
     WHERE IssueLink.outward_issue_id =  (SELECT jira_id FROM Issue WHERE Issue.key == ?)
-    GROUP BY link_name
-    ORDER BY link_name;";
+    AND IssueField.field_id == 'summary'
+    ORDER BY link_name ASC,
+             Issue.jira_id ASC;";
 
   // query return {jira_key} satisfies {all there other keys}
-  let outward_relations_querty = "
-    SELECT DISTINCT outward_name AS link_name, GROUP_CONCAT(key, ',') AS other_issue_keys
+  let outward_relations_query = "
+    SELECT DISTINCT IssueLinkType.outward_name AS link_name, Issue.key AS other_issue_key, IssueField.field_value AS other_issue_summary
     FROM Issue
     JOIN IssueLink ON IssueLink.outward_issue_id = Issue.jira_id
     JOIN IssueLinkType ON IssueLinkType.jira_id = IssueLink.link_type_id
+    JOIN IssueField ON IssueField.issue_id = IssueLink.outward_issue_id
     WHERE IssueLink.inward_issue_id =  (SELECT jira_id FROM Issue WHERE Issue.key == ?)
-    GROUP BY link_name
-    ORDER BY link_name;";
+    AND IssueField.field_id = 'summary'
+    ORDER BY link_name ASC,
+             Issue.jira_id ASC;";
 
-  let outward_links = sqlx::query_as::<_, Relations>(outward_relations_querty)
+  let outward_links = sqlx::query_as::<_, Relations>(outward_relations_query)
     .bind(jira_key)
     .fetch_all(db_conn)
     .await;
@@ -122,7 +127,15 @@ async fn get_jira_ticket_as_markdown(jira_key: &str, db_conn: &Pool<Sqlite>) -> 
   let links_str = outward_links
     .iter()
     .chain(&inward_links)
-    .map(|x| { format!("{jira_key} {relation} {other_keys}", relation=x.link_name, other_keys=x.other_issue_keys)})
+    .map(|x| {
+      let relation = x.link_name.as_str();
+      let other_key = x.other_issue_key.as_str();
+      let summary = match &x.other_issue_summary {
+        None => { "" }
+        Some(a) => { a.as_str() }
+      };
+      format!("{relation} {other_key}: {summary}")
+    })
     .reduce(|a, b| { format!("{a}\n{b}")})
     .unwrap_or_default();
 
