@@ -1,0 +1,6 @@
+[book]
+authors = ["Samuel DA MOTA"]
+language = "en"
+multilingual = false
+src = "src"
+title = "Local_jira documentation"
