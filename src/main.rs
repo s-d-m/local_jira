@@ -1,51 +1,53 @@
 extern crate core;
 
 use std::ffi::OsStr;
-use std::future::IntoFuture;
+
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
+use crate::find_issues_that_need_updating::get_issues_that_need_updating;
 use base64::Engine;
 use sqlx;
-use sqlx::{Execute, Executor, FromRow, Pool, Sqlite, SqlitePool, Statement};
 use sqlx::migrate::MigrateDatabase;
-use crate::find_issues_that_need_updating::get_issues_that_need_updating;
+use sqlx::{Execute, Executor, FromRow, Pool, Sqlite, SqlitePool, Statement};
 
-use crate::get_config::{Config, get_config};
+use crate::get_config::{get_config, Config};
 use crate::get_issue_details::add_details_to_issue_in_db;
-use crate::manage_interesting_projects::update_interesting_projects_in_db;
 use crate::manage_field_table::update_fields_in_db;
-use crate::manage_issuetype_table::update_issue_types_in_db;
+use crate::manage_interesting_projects::update_interesting_projects_in_db;
 use crate::manage_issuelinktype_table::update_issue_link_types_in_db;
+use crate::manage_issuetype_table::update_issue_types_in_db;
 use crate::manage_project_table::update_project_list_in_db;
 
 // some useful links: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-group-issues
 // https://docs.atlassian.com/software/jira/docs/api/REST/9.14.0/#api/2/project-getAllProjects
 
-mod get_config;
+mod atlassian_document_format;
 mod defaults;
-mod manage_interesting_projects;
-mod get_project_tasks_from_server;
+mod find_issues_that_need_updating;
+mod get_attachment_content;
+mod get_config;
+mod get_issue_details;
 mod get_json_from_url;
-mod manage_issuelinktype_table;
+mod get_project_tasks_from_server;
+mod insert_or_update_interesting_projects_in_db;
 mod manage_field_table;
-mod utils;
+mod manage_interesting_projects;
+mod manage_issue_comments;
+mod manage_issue_field;
+mod manage_issuelinktype_table;
 mod manage_issuetype_table;
 mod manage_project_table;
-mod manage_issue_field;
 mod server;
-mod atlassian_document_format;
-mod get_issue_details;
-mod get_attachment_content;
-mod manage_issue_comments;
-mod find_issues_that_need_updating;
+mod utils;
 
 async fn init_db(db_path: &std::path::PathBuf) -> Result<Pool<Sqlite>, String> {
-
     let path = db_path.to_str();
     let Some(path) = path else {
-        return Err(format!("Unsupported filename [{f}] must be utf8 valid.",
-                           f = db_path.to_string_lossy()));
+        return Err(format!(
+            "Unsupported filename [{f}] must be utf8 valid.",
+            f = db_path.to_string_lossy()
+        ));
     };
     if !Sqlite::database_exists(path).await.unwrap_or(false) {
         eprintln!("Creating database {}", path);
@@ -64,34 +66,27 @@ async fn init_db(db_path: &std::path::PathBuf) -> Result<Pool<Sqlite>, String> {
     Ok(db)
 }
 
-
 fn get_str_for_key<'a>(x: &'a serde_json::Value, key_name: &str) -> Option<&'a str> {
     match x.get(key_name) {
         None => {
             eprintln!("Error: returned project does not contained a \"{key_name}\" value in the json. Ignoring it");
             None
         }
-        Some(k) => {
-            match k.as_str() {
-                None => {
-                    eprintln!("Error: returned project \"{key_name}\" is not a string in the json. Ignoring it");
-                    None
-                }
-                Some(k) => {
-                    Some(k)
-                }
+        Some(k) => match k.as_str() {
+            None => {
+                eprintln!("Error: returned project \"{key_name}\" is not a string in the json. Ignoring it");
+                None
             }
-        }
+            Some(k) => Some(k),
+        },
     }
 }
-
-
 
 #[tokio::main]
 pub async fn main() {
     let config_file = OsStr::from_bytes(defaults::DEFAULT_CONFIG_FILE_PATH.as_bytes());
     let config = match get_config(Path::new(config_file)) {
-        Ok(v) => { v }
+        Ok(v) => v,
         Err(e) => {
             eprintln!("Error: Failed to read config file at {config_file:?}.\nError: {e}");
             return;
@@ -101,21 +96,19 @@ pub async fn main() {
     let db_path = config.local_database();
     let mut db = init_db(db_path).await.unwrap();
 
-    let mut db_issue_type_handle = &mut db.clone();
-    let mut db_fields_handle = &mut db.clone();
-    let mut db_link_types_handles = &mut db.clone();
-    let mut db_project_list_handle = &mut db.clone();
+    {
+        let mut db_issue_type_handle = &mut db.clone();
+        let mut db_fields_handle = &mut db.clone();
+        let mut db_link_types_handles = &mut db.clone();
+        let mut db_project_list_handle = &mut db.clone();
 
-    tokio::join!(
-        update_issue_types_in_db(&config, &mut db_issue_type_handle),
-        update_fields_in_db(&config, &mut db_fields_handle),
-        update_issue_link_types_in_db(&config, &mut db_link_types_handles),
-        update_project_list_in_db(&config, &mut db_project_list_handle));
-
-    drop(db_issue_type_handle);
-    drop(db_fields_handle);
-    drop(db_link_types_handles);
-    drop(db_project_list_handle);
+        tokio::join!(
+            update_issue_types_in_db(&config, &mut db_issue_type_handle),
+            update_fields_in_db(&config, &mut db_fields_handle),
+            update_issue_link_types_in_db(&config, &mut db_link_types_handles),
+            update_project_list_in_db(&config, &mut db_project_list_handle)
+        );
+    }
     update_interesting_projects_in_db(&config, &mut db).await;
     server::server_request_loop(&db).await;
 }

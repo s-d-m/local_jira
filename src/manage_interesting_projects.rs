@@ -1,10 +1,13 @@
 use std::collections::HashSet;
 use std::hash::Hash;
+use std::rc::Rc;
+use std::sync::Arc;
 use serde::Serialize;
 use serde_json::Value;
 use sqlx::{FromRow, Pool, Sqlite};
 use sqlx::types::{Json, JsonValue};
 use tokio::net::tcp::ReuniteError;
+use tokio::task::JoinSet;
 use crate::get_config::Config;
 use crate::get_project_tasks_from_server::get_project_tasks_from_server;
 use crate::manage_issue_field::fill_issues_fields;
@@ -85,10 +88,13 @@ pub(crate) struct fields_in_db {
 
 async fn update_issues_in_db(issues_to_insert: &Vec<Issue>, db_conn: &mut Pool<Sqlite>, project_key: &str) {
   let issues_in_db = get_issues_from_db(&db_conn).await;
-  let issues_in_db = issues_in_db.unwrap_or_else(|e| {
-    eprintln!("Error occurred: {e}");
-    Vec::new()
-  });
+  let issues_in_db = match issues_in_db {
+    Ok(v) => {v}
+    Err(e) => {
+      eprintln!("Error occurred: {e}");
+      return
+    }
+  };
 
   let hashed_issues_in_db = issues_in_db.iter().collect::<HashSet<&Issue>>();
   let issues_to_insert = issues_to_insert
@@ -351,38 +357,49 @@ async fn update_issue_links_in_db(issue_links: &Vec<IssueLink>, db_conn: &mut Po
   }
 }
 
-pub(crate) async fn update_interesting_projects_in_db(config: &Config, db_conn: &mut Pool<Sqlite>) {
-  for project_key in config.interesting_projects() {
+async fn update_given_project_in_db(config: Config, project_key: String, db_conn: Pool<Sqlite>) {
+  let json_tickets = get_project_tasks_from_server(project_key.as_str(), &config).await;
+  let mut db_handle = db_conn.clone();
 
+  if let Ok(paginated_json_tickets) = json_tickets {
+    for json_tickets in &paginated_json_tickets {
+      let issues = get_issues_from_json(&json_tickets, project_key.as_str());
 
-    let json_tickets = get_project_tasks_from_server(project_key, &config).await;
-    if let Ok(paginated_json_tickets) = json_tickets {
-      for json_tickets in &paginated_json_tickets {
-        let issues = get_issues_from_json(&json_tickets, project_key.as_str());
-        match issues {
-          Ok(issues) => {
-            update_issues_in_db(&issues, db_conn, project_key.as_str()).await;
-          }
-          Err(e) => { eprintln!("Error: {e}"); }
+      match issues {
+        Ok(issues) => {
+          update_issues_in_db(&issues, &mut db_handle, project_key.as_str()).await;
         }
-
-        fill_issues_fields(&json_tickets, db_conn).await;
+        Err(e) => { eprintln!("Error: {e}"); }
       }
 
-      // First insert all issues in the db, and then insert the links between issues.
-      // This avoids the issues where inserting links fails due to foreign constraints violation
-      // at the database layer because some issues are linked to others which crosses a pagination
-      // limit.
-      for json_tickets in &paginated_json_tickets {
-        let issue_links = get_issue_links_from_json(&json_tickets);
-        match issue_links {
-          Ok(issue_links) => {
-            update_issue_links_in_db(&issue_links, db_conn).await;
-          }
-          Err(e) => { eprintln!("Error: {e}") }
+      fill_issues_fields(&json_tickets, &mut db_handle).await;
+    }
+
+    // First insert all issues in the db, and then insert the links between issues.
+    // This avoids the issues where inserting links fails due to foreign constraints violation
+    // at the database layer because some issues are linked to others which crosses a pagination
+    // limit.
+    for json_tickets in &paginated_json_tickets {
+      let issue_links = get_issue_links_from_json(&json_tickets);
+      match issue_links {
+        Ok(issue_links) => {
+          update_issue_links_in_db(&issue_links, &mut db_handle).await;
         }
+        Err(e) => { eprintln!("Error: {e}") }
       }
     }
+  }
+}
+
+pub(crate) async fn update_interesting_projects_in_db(config: &Config, db_conn: &mut Pool<Sqlite>) {
+  let interesting_projects = config.interesting_projects();
+
+  let mut tasks = interesting_projects
+    .iter()
+    .map(|x| tokio::spawn(update_given_project_in_db(config.clone(), x.clone(), db_conn.clone())))
+    .collect::<JoinSet<_>>();
+  
+  while let Some(res) = tasks.join_next().await {
   }
 }
 

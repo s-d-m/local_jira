@@ -18,7 +18,7 @@ struct FileOnDiskConfig {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct Config {
     server_address: String,
     user_login: String, // likely email address
