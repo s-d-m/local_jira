@@ -1,6 +1,7 @@
 extern crate core;
 
 use std::ffi::OsStr;
+use std::future::IntoFuture;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
@@ -100,10 +101,21 @@ pub async fn main() {
     let db_path = config.local_database();
     let mut db = init_db(db_path).await.unwrap();
 
-    update_issue_types_in_db(&config, &mut db).await;
-    update_fields_in_db(&config, &mut db).await;
-    update_issue_link_types_in_db(&config, &mut db).await;
-    update_project_list_in_db(&config, &mut db).await;
+    let mut db_issue_type_handle = &mut db.clone();
+    let mut db_fields_handle = &mut db.clone();
+    let mut db_link_types_handles = &mut db.clone();
+    let mut db_project_list_handle = &mut db.clone();
+
+    tokio::join!(
+        update_issue_types_in_db(&config, &mut db_issue_type_handle),
+        update_fields_in_db(&config, &mut db_fields_handle),
+        update_issue_link_types_in_db(&config, &mut db_link_types_handles),
+        update_project_list_in_db(&config, &mut db_project_list_handle));
+
+    drop(db_issue_type_handle);
+    drop(db_fields_handle);
+    drop(db_link_types_handles);
+    drop(db_project_list_handle);
     update_interesting_projects_in_db(&config, &mut db).await;
     server::server_request_loop(&db).await;
 }
