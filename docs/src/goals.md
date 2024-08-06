@@ -75,4 +75,5 @@ As a compromise between fast-interaction, and latest data, the software should:
 
 When a change is detected on a single ticket, the software should fetch as little data as
 necessary from the remote server to incrementally update the local database to bring it
-to a up-to-date state.
+to a up-to-date state. This is necessary to minimise the time between the first and last
+point on notifying users of changes.
