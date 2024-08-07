@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS IssueLink (
     FOREIGN KEY(outward_issue_id) REFERENCES Issue(jira_id),
     FOREIGN KEY(inward_issue_id) REFERENCES Issue(jira_id),
     CHECK (outward_issue_id != inward_issue_id)
+    UNIQUE(link_type_id, outward_issue_id, inward_issue_id)
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS IssueField (

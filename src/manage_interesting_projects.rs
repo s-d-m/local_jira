@@ -4,7 +4,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use serde::Serialize;
 use serde_json::Value;
-use sqlx::{FromRow, Pool, Sqlite};
+use sqlx::{Error, FromRow, Pool, query, Sqlite};
 use sqlx::types::{Json, JsonValue};
 use tokio::net::tcp::ReuniteError;
 use tokio::task::JoinSet;
@@ -162,7 +162,7 @@ async fn update_issues_in_db(issues_to_insert: &Vec<Issue>, db_conn: &mut Pool<S
   }
 }
 
-#[derive(FromRow, Debug)]
+#[derive(FromRow, Clone, Debug, Hash, Eq, PartialEq)]
 struct IssueLink {
   jira_id: u32,
   link_type_id: u32,
@@ -294,66 +294,142 @@ fn get_issue_links_from_json(json_data: &Value) -> Result<Vec<IssueLink>, String
   Ok(issue_links)
 }
 
-async fn update_issue_links_in_db(issue_links: &Vec<IssueLink>, db_conn: &mut Pool<Sqlite>) {
+async fn get_links_from_db(jira_ids: &[u32], db_conn: &mut Pool<Sqlite>) -> HashSet<IssueLink>
+{
+  let mut res = HashSet::new();
+  let query_str =
+  "SELECT  jira_id, link_type_id, outward_issue_id, inward_issue_id
+  FROM IssueLink
+  WHERE outward_issue_id = ?
+     OR inward_issue_id = ?";
+
+  for id in jira_ids {
+    let query_res = sqlx::query_as::<_, IssueLink>(query_str)
+      .bind(id)
+      .bind(id)
+      .fetch_all(&*db_conn)
+      .await;
+
+    match query_res {
+      Ok(e) => {
+        res.extend(e.into_iter());
+      }
+      Err(e) => {
+        eprintln!("Error occurred while retrieving links for issue with id {id} from local db. Err: {e}")
+      }
+    }
+  }
+  res
+}
+
+
+async fn update_issue_links_in_db(issues_ids: &[u32], issue_links: &Vec<IssueLink>, db_conn: &mut Pool<Sqlite>) {
   //dbg!(&issue_links);
   if issue_links.is_empty() {
     return;
   }
 
-  let mut has_error = false;
-  let mut row_affected = 0;
-  let mut tx = db_conn
-    .begin()
-    .await
-    .expect("Error when starting a sql transaction");
+  let links_from_db = get_links_from_db(&issues_ids, db_conn).await;
+  let links_from_remote = issue_links
+    .iter()
+    .map(|a| a.clone())
+    .collect::<HashSet<_>>();
+  let links_in_db_not_in_remote = links_from_db.difference(&links_from_remote)
+    .collect::<Vec<_>>();
+  let links_in_remote_not_in_db = links_from_remote.difference(&links_from_db)
+    .collect::<Vec<_>>();
+  let links_to_remove = links_in_db_not_in_remote;
+  let links_to_insert = links_in_remote_not_in_db;
 
-  // todo(perf): these insert are likely very inefficient since we insert
-  // one element at a time instead of doing bulk insert.
-  // check https://stackoverflow.com/questions/65789938/rusqlite-insert-multiple-rows
-  // and https://www.sqlite.org/c3ref/c_limit_attached.html#sqlitelimitvariablenumber
-  // for the SQLITE_LIMIT_VARIABLE_NUMBER maximum number of parameters that can be
-  // passed in a query.
-  // splitting an iterator in chunks would come in handy here.
+  match links_to_remove.is_empty() {
+    true => {eprintln!("No links found in local db that were removed in server")}
+    false => {
+      let mut has_error = false;
+      let mut row_affected = 0;
+      let mut tx = db_conn
+        .begin()
+        .await
+        .expect("Error when starting a sql transaction");
 
-  // todo(perf): add detection of what is already in db and do some filter out. Here we happily
-  // overwrite data with the exact same ones, thus taking the write lock on the
-  // database for longer than necessary.
-  // Plus it means the logs aren't that useful to troubleshoot how much data changed
-  // in the database. Seeing messages saying
-  // 'updated Issue in database: 58 rows were updated'
-  // means there has been at most 58 changes. Chances are there are actually been
-  // none since the last update.
-  let query_str =
-    "INSERT INTO IssueLink (jira_id, link_type_id, outward_issue_id, inward_issue_id) VALUES
+      let query_str =
+        "DELETE FROM IssueLink
+        WHERE jira_id = ?";
+
+      for &IssueLink{ jira_id, link_type_id, outward_issue_id, inward_issue_id } in links_to_remove {
+        let res = sqlx::query(query_str)
+          .bind(jira_id)
+          .execute(&mut *tx)
+          .await;
+        match res {
+          Ok(e) => { row_affected += e.rows_affected() }
+          Err(e) => {
+            has_error = true;
+            eprintln!("Error while deleting from attachment table: {e}")
+          }
+        }
+      }
+
+      tx.commit().await.unwrap();
+
+      if has_error {
+        eprintln!("Error occurred while removing out-of-date issue links in the local database")
+      } else {
+        eprintln!("updated IssueLinks in database: {row_affected} rows were removed")
+      }
+    }
+  }
+
+  match links_to_insert.is_empty() {
+    true => {eprintln!("No new link between issues found on the remote server")}
+    false => {
+      let mut has_error = false;
+      let mut row_affected = 0;
+      let mut tx = db_conn
+        .begin()
+        .await
+        .expect("Error when starting a sql transaction");
+
+      // todo(perf): these insert are likely very inefficient since we insert
+      // one element at a time instead of doing bulk insert.
+      // check https://stackoverflow.com/questions/65789938/rusqlite-insert-multiple-rows
+      // and https://www.sqlite.org/c3ref/c_limit_attached.html#sqlitelimitvariablenumber
+      // for the SQLITE_LIMIT_VARIABLE_NUMBER maximum number of parameters that can be
+      // passed in a query.
+      // splitting an iterator in chunks would come in handy here.
+
+      let query_str =
+        "INSERT INTO IssueLink (jira_id, link_type_id, outward_issue_id, inward_issue_id) VALUES
                 (?, ?, ?, ?)
             ON CONFLICT DO
             UPDATE SET link_type_id = excluded.link_type_id,
                        outward_issue_id = excluded.outward_issue_id,
                        inward_issue_id = excluded.inward_issue_id";
 
-  for IssueLink { jira_id, link_type_id, outward_issue_id, inward_issue_id } in issue_links {
-    let res = sqlx::query(query_str)
-      .bind(jira_id)
-      .bind(link_type_id)
-      .bind(outward_issue_id)
-      .bind(inward_issue_id)
-      .execute(&mut *tx)
-      .await;
-    match res {
-      Ok(e) => { row_affected += e.rows_affected() }
-      Err(e) => {
-        has_error = true;
-        eprintln!("Error when adding (jira_id {jira_id}, link_type_id: {link_type_id}, outward_issue_id: {outward_issue_id}, inward_issue_id: {inward_issue_id}): {e}")
+      for &IssueLink { jira_id, link_type_id, outward_issue_id, inward_issue_id } in links_to_insert {
+        let res = sqlx::query(query_str)
+          .bind(jira_id)
+          .bind(link_type_id)
+          .bind(outward_issue_id)
+          .bind(inward_issue_id)
+          .execute(&mut *tx)
+          .await;
+        match res {
+          Ok(e) => { row_affected += e.rows_affected() }
+          Err(e) => {
+            has_error = true;
+            eprintln!("Error when adding (jira_id {jira_id}, link_type_id: {link_type_id}, outward_issue_id: {outward_issue_id}, inward_issue_id: {inward_issue_id}): {e}")
+          }
+        }
+      }
+
+      tx.commit().await.unwrap();
+
+      if has_error {
+        eprintln!("Error occurred while updating the database with IssueLinks")
+      } else {
+        eprintln!("updated IssueLinks in database: {row_affected} rows were inserted")
       }
     }
-  }
-
-  tx.commit().await.unwrap();
-
-  if has_error {
-    eprintln!("Error occurred while updating the database with IssueLinks")
-  } else {
-    eprintln!("updated IssueLinks in database: {row_affected} rows were updated")
   }
 }
 
@@ -362,9 +438,16 @@ async fn update_given_project_in_db(config: Config, project_key: String, db_conn
   let mut db_handle = db_conn.clone();
 
   if let Ok(paginated_json_tickets) = json_tickets {
-    for json_tickets in &paginated_json_tickets {
-      let issues = get_issues_from_json(&json_tickets, project_key.as_str());
+    let issues_and_links = paginated_json_tickets
+      .iter()
+      .map(|json_tickets| {
+        let issues = get_issues_from_json(&json_tickets, project_key.as_str());
+        let links = get_issue_links_from_json(&json_tickets);
+        (json_tickets, issues, links)
+      })
+      .collect::<Vec<_>>();
 
+    for (json_tickets, issues, _links) in &issues_and_links {
       match issues {
         Ok(issues) => {
           update_issues_in_db(&issues, &mut db_handle, project_key.as_str()).await;
@@ -379,13 +462,17 @@ async fn update_given_project_in_db(config: Config, project_key: String, db_conn
     // This avoids the issues where inserting links fails due to foreign constraints violation
     // at the database layer because some issues are linked to others which crosses a pagination
     // limit.
-    for json_tickets in &paginated_json_tickets {
-      let issue_links = get_issue_links_from_json(&json_tickets);
-      match issue_links {
-        Ok(issue_links) => {
-          update_issue_links_in_db(&issue_links, &mut db_handle).await;
+    for (json_tickets, issues, links) in &issues_and_links {
+      match (issues, links) {
+        (Ok(issues), Ok(issue_links)) => {
+          let issues_id = issues
+            .iter()
+            .map(|x| x.jira_id)
+            .collect::<Vec<_>>();
+          update_issue_links_in_db(issues_id.as_slice(), &issue_links, &mut db_handle).await;
         }
-        Err(e) => { eprintln!("Error: {e}") }
+        (_, Err(e)) => { eprintln!("Error: {e}") }
+        (Err(e), Ok(_)) => { eprintln!("Not updating links due to former error {e}")}
       }
     }
   }
@@ -398,7 +485,7 @@ pub(crate) async fn update_interesting_projects_in_db(config: &Config, db_conn: 
     .iter()
     .map(|x| tokio::spawn(update_given_project_in_db(config.clone(), x.clone(), db_conn.clone())))
     .collect::<JoinSet<_>>();
-  
+
   while let Some(res) = tasks.join_next().await {
   }
 }
