@@ -6,13 +6,14 @@ PRAGMA synchronous=NORMAL;
 PRAGMA mmap_size = 134217728;
 PRAGMA journal_size_limit = 27103364;
 PRAGMA cache_size=2000;
+PRAGMA integrity_check;
 
 BEGIN;
 
 CREATE TABLE IF NOT EXISTS People (
    accountId TEXT UNIQUE PRIMARY KEY NOT NULL,
    displayName TEXT UNIQUE NOT NULL
-);
+) STRICT;
 
 CREATE TABLE IF NOT EXISTS Project (
    jira_id INTEGER UNIQUE PRIMARY KEY NOT NULL,
@@ -20,7 +21,7 @@ CREATE TABLE IF NOT EXISTS Project (
    name TEXT,
    description TEXT,
    is_archived INTEGER NOT NULL
-);
+) STRICT;
 
 CREATE INDEX IF NOT EXISTS projects_key ON Project(key);
 
@@ -30,13 +31,13 @@ CREATE TABLE IF NOT EXISTS Field (
   human_name TEXT NOT NULL,                   -- like country / vendor / supplier...
   schema TEXT NOT NULL,
   is_custom INTEGER
-);
+) STRICT;
 
 CREATE TABLE IF NOT EXISTS IssueType (
    jira_id INTEGER UNIQUE PRIMARY KEY NOT NULL,
    name TEXT NOT NULL,
    description TEXT NOT NULL
-);
+) STRICT;
 
 CREATE TABLE IF NOT EXISTS IssueTypePerProject (
    project_id INTEGER,
@@ -44,7 +45,7 @@ CREATE TABLE IF NOT EXISTS IssueTypePerProject (
    FOREIGN KEY(project_id) REFERENCES Project(jira_id),
    FOREIGN KEY(issue_type_id) REFERENCES IssueType(jira_id),
    UNIQUE(project_id, issue_type_id)
-);
+) STRICT;
 
 CREATE TABLE IF NOT EXISTS Issue (
    jira_id INTEGER UNIQUE PRIMARY KEY NOT NULL,
@@ -52,7 +53,7 @@ CREATE TABLE IF NOT EXISTS Issue (
    project_key TEXT NOT NULL,
    FOREIGN KEY (project_key) REFERENCES Project(key),
    UNIQUE(key, project_key)
-);
+) STRICT;
 
 CREATE INDEX IF NOT EXISTS issue_key ON Issue(key);
 
@@ -61,7 +62,7 @@ CREATE TABLE IF NOT EXISTS IssueLinkType (
    name TEXT NOT NULL,
    outward_name TEXT NOT NULL,
    inward_name TEXT NOT NULL
-);
+) STRICT;
 
 -- link between two issues (aka between two COMPANYPROJ-XXXXX)
 CREATE TABLE IF NOT EXISTS IssueLink (
@@ -73,24 +74,24 @@ CREATE TABLE IF NOT EXISTS IssueLink (
     FOREIGN KEY(outward_issue_id) REFERENCES Issue(jira_id),
     FOREIGN KEY(inward_issue_id) REFERENCES Issue(jira_id),
     CHECK (outward_issue_id != inward_issue_id)
-);
+) STRICT;
 
 CREATE TABLE IF NOT EXISTS IssueField (
    issue_id INTEGER,
-   field_id STRING,
-   field_value STRING,
+   field_id TEXT,
+   field_value TEXT,
 
    FOREIGN KEY(issue_id) REFERENCES Issue(jira_id),
    FOREIGN KEY(field_id) REFERENCES Field(jira_id),
    UNIQUE(issue_id, field_id)
-);
+) STRICT;
 
 CREATE TABLE IF NOT EXISTS watcher (
     person TEXT,
     Issue INTEGER,
     FOREIGN KEY (person) REFERENCES people(accountId),
     FOREIGN KEY (Issue) REFERENCES Issue(jira_id)
-);
+) STRICT;
 
 CREATE TABLE IF NOT EXISTS Attachment (
   uuid TEXT UNIQUE,
@@ -102,7 +103,7 @@ CREATE TABLE IF NOT EXISTS Attachment (
   content_data BLOB,
 
   FOREIGN KEY (issue_id) REFERENCES Issue(jira_id)
-);
+) STRICT;
 
 CREATE TABLE IF NOT EXISTS Comment (
   id INTEGER UNIQUE PRIMARY KEY NOT NULL,
@@ -116,7 +117,7 @@ CREATE TABLE IF NOT EXISTS Comment (
   FOREIGN KEY (issue_id) REFERENCES Issue(jira_id),
   FOREIGN KEY (author) REFERENCES People(accountId),
   UNIQUE(id, position_in_array)
-);
+) STRICT;
 
 CREATE INDEX IF NOT EXISTS comment_issue ON Comment(issue_id, position_in_array);
 
