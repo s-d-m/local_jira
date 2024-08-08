@@ -131,79 +131,26 @@ fn get_projects_in_db_not_in_remote<'a>(
 }
 
 fn get_issue_types_per_project_in_remote_not_in_db<'a, 'b>(
-    issue_types_per_project: &'a Vec<IssueTypePerProject>,
+    issue_types_per_project_in_remote: &'a Vec<IssueTypePerProject>,
     issue_types_per_project_in_db: &'b Vec<IssueTypePerProject>,
 ) -> Vec<&'a IssueTypePerProject>
 where
     'b: 'a,
 {
     get_inputs_in_remote_not_in_db(
-        issue_types_per_project.as_slice(),
+        issue_types_per_project_in_remote.as_slice(),
         issue_types_per_project_in_db.as_slice(),
     )
 }
 
-async fn insert_issue_types_per_project_in_db(
-    issue_types_per_project_to_insert: Vec<&IssueTypePerProject>,
-    db_conn: &mut Pool<Sqlite>,
-) {
-    if issue_types_per_project_to_insert.is_empty() {
-        eprintln!("No new issue types per project found");
-        return;
-    }
-
-    let mut has_error = false;
-    let mut row_affected = 0;
-    let mut tx = db_conn
-        .begin()
-        .await
-        .expect("Error when starting a sql transaction");
-
-    // todo(perf): these insert are likely very inefficient since we insert
-    // one element at a time instead of doing bulk insert.
-    // check https://stackoverflow.com/questions/65789938/rusqlite-insert-multiple-rows
-    // and https://www.sqlite.org/c3ref/c_limit_attached.html#sqlitelimitvariablenumber
-    // for the SQLITE_LIMIT_VARIABLE_NUMBER maximum number of parameters that can be
-    // passed in a query.
-    // splitting an iterator in chunks would come in handy here.
-
-    // todo(perf): add detection of what is already in db and do some filter out. Here we happily
-    // overwrite data with the exact same ones, thus taking the write lock on the
-    // database for longer than necessary.
-    // Plus it means the logs aren't that useful to troubleshoot how much data changed
-    // in the database. Seeing messages saying
-    // 'updated Issue fields in database: 58 rows were updated'
-    // means there has been at most 58 changes. Chances are there are actually been
-    // none since the last update.
-    let query_str = "INSERT INTO IssueTypePerProject (project_id, issue_type_id) VALUES
-                (?, ?)";
-
-    for IssueTypePerProject {
-        project_id,
-        issue_type_id,
-    } in issue_types_per_project_to_insert
-    {
-        let res = sqlx::query(query_str)
-            .bind(project_id)
-            .bind(issue_type_id)
-            .execute(&mut *tx)
-            .await;
-        match res {
-            Ok(e) => row_affected += e.rows_affected(),
-            Err(e) => {
-                has_error = true;
-                eprintln!("Error occurred when trying to insert into IssueTypePerProject (project_id: {project_id}, issue_type_id: {issue_type_id}) : {e}")
-            }
-        }
-    }
-
-    tx.commit().await.unwrap();
-
-    if has_error {
-        eprintln!("Error occurred while updating the database with projects")
-    } else {
-        eprintln!("updated projects in database: {row_affected} rows were updated")
-    }
+fn get_issue_types_per_project_in_db_not_in_remote<'a>(
+    issue_types_per_project_in_remote: &'a Vec<IssueTypePerProject>,
+    issue_types_per_project_in_db: &'a Vec<IssueTypePerProject>,
+) -> Vec<&'a IssueTypePerProject> {
+    get_inputs_in_db_not_in_remote(
+        issue_types_per_project_in_remote.as_slice(),
+        issue_types_per_project_in_db.as_slice(),
+    )
 }
 
 #[derive(FromRow, Eq, PartialEq, Hash)]
@@ -298,7 +245,7 @@ fn get_issue_types_per_project(json_data: &Value) -> Vec<IssueTypePerProject> {
     res
 }
 
-async fn update_projects(json_data: &Value, mut db_conn: &mut Pool<Sqlite>) {
+async fn update_projects(json_data: &Value, db_conn: Pool<Sqlite>) {
     let projects_in_remote = get_projects_from_server(&json_data).await;
     let Ok(projects_in_remote) = projects_in_remote else {
         eprintln!(
@@ -421,6 +368,114 @@ async fn update_projects(json_data: &Value, mut db_conn: &mut Pool<Sqlite>) {
     }
 }
 
+async fn update_issue_types_per_project(json_data: &Value, db_conn: Pool<Sqlite>) {
+    let issue_types_per_project_in_remote = get_issue_types_per_project(&json_data);
+    let issue_types_per_project_in_db = get_issue_types_per_project_in_db(&db_conn).await;
+    let issue_types_per_project_to_insert = get_issue_types_per_project_in_remote_not_in_db(
+        &issue_types_per_project_in_remote,
+        &issue_types_per_project_in_db,
+    );
+    let issue_types_per_project_to_remove = get_issue_types_per_project_in_db_not_in_remote(
+        &issue_types_per_project_in_remote,
+        &issue_types_per_project_in_db,
+    );
+
+    match issue_types_per_project_to_remove.is_empty() {
+      true => {
+        eprintln!("No types per project found in local db that wasn't on the remote too");
+      }
+      false => {
+        let query_str = "DELETE FROM IssueTypePerProject
+                      WHERE project_id = ?
+                      AND issue_type_id = ?;";
+
+        let mut has_error = false;
+        let mut row_affected = 0;
+        let mut tx = db_conn
+          .begin()
+          .await
+          .expect("Error when starting a sql transaction");
+
+        for IssueTypePerProject{ project_id, issue_type_id } in issue_types_per_project_to_remove
+        {
+          let res = sqlx::query(query_str)
+            .bind(project_id)
+            .bind(issue_type_id)
+            .execute(&mut *tx)
+            .await;
+
+          match res {
+            Ok(e) => row_affected += e.rows_affected(),
+            Err(e) => {
+              has_error = true;
+              eprintln!("Error when removing an issue type per project with project_id {project_id}, issue_type_id: {issue_type_id}. Err: {e}");
+            }
+          }
+        }
+
+        tx.commit().await.unwrap();
+
+        if has_error {
+          eprintln!("Error occurred while removing issue type per project from the local database")
+        } else {
+          eprintln!("updated issue type per project in database: {row_affected} rows were deleted")
+        }
+      }
+    }
+
+    match issue_types_per_project_to_insert.is_empty() {
+        true => {
+            eprintln!("No new issue types per project found");
+        }
+        false => {
+            let mut has_error = false;
+            let mut row_affected = 0;
+            let mut tx = db_conn
+                .begin()
+                .await
+                .expect("Error when starting a sql transaction");
+
+            // todo(perf): these insert are likely very inefficient since we insert
+            // one element at a time instead of doing bulk insert.
+            // check https://stackoverflow.com/questions/65789938/rusqlite-insert-multiple-rows
+            // and https://www.sqlite.org/c3ref/c_limit_attached.html#sqlitelimitvariablenumber
+            // for the SQLITE_LIMIT_VARIABLE_NUMBER maximum number of parameters that can be
+            // passed in a query.
+            // splitting an iterator in chunks would come in handy here.
+
+            let query_str = "INSERT INTO IssueTypePerProject (project_id, issue_type_id) VALUES
+                (?, ?)";
+
+            for IssueTypePerProject {
+                project_id,
+                issue_type_id,
+            } in issue_types_per_project_to_insert
+            {
+                let res = sqlx::query(query_str)
+                    .bind(project_id)
+                    .bind(issue_type_id)
+                    .execute(&mut *tx)
+                    .await;
+                match res {
+                    Ok(e) => row_affected += e.rows_affected(),
+                    Err(e) => {
+                        has_error = true;
+                        eprintln!("Error occurred when trying to insert into IssueTypePerProject (project_id: {project_id}, issue_type_id: {issue_type_id}) : {e}")
+                    }
+                }
+            }
+
+            tx.commit().await.unwrap();
+
+            if has_error {
+                eprintln!("Error occurred while updating the database with IssueTypePerProject")
+            } else {
+                eprintln!("updated IssueTypePerProject in database: {row_affected} rows were updated")
+            }
+        }
+    }
+}
+
 pub(crate) async fn update_project_list_in_db(config: &Config, mut db_conn: &mut Pool<Sqlite>) {
     let json_data = get_json_projects_from_server(&config).await;
     let Ok(json_data) = json_data else {
@@ -431,14 +486,8 @@ pub(crate) async fn update_project_list_in_db(config: &Config, mut db_conn: &mut
         return;
     };
 
-    update_projects(&json_data, db_conn).await;
-
-    // update issue types for projects
-    let issue_types_per_project = get_issue_types_per_project(&json_data);
-    let issue_types_per_project_in_db = get_issue_types_per_project_in_db(&db_conn).await;
-    let issue_types_per_project_to_insert = get_issue_types_per_project_in_remote_not_in_db(
-        &issue_types_per_project,
-        &issue_types_per_project_in_db,
+    tokio::join!(
+        update_projects(&json_data, db_conn.clone()),
+        update_issue_types_per_project(&json_data, db_conn.clone())
     );
-    insert_issue_types_per_project_in_db(issue_types_per_project_to_insert, &mut db_conn).await;
 }
