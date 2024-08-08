@@ -258,7 +258,7 @@ pub(crate) async fn fill_issues_fields(json_data: &Value, db_conn: &mut Pool<Sql
                     Ok(e) => row_affected += e.rows_affected(),
                     Err(e) => {
                         has_error = true;
-                        eprintln!("Error when adding an issue field with (issue_id {issue_id}, key: {field_id}, value: {field_value}): {e}");
+                        eprintln!("Error when removing an issue field with (issue_id {issue_id}, field_id: {field_id}, value: {field_value}): {e}");
                     }
                 }
             }
