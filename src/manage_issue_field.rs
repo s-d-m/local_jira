@@ -266,7 +266,7 @@ pub(crate) async fn fill_issues_fields(json_data: &Value, db_conn: &mut Pool<Sql
             tx.commit().await.unwrap();
 
             if has_error {
-                eprintln!("Error occurred while updating the database with issue fields")
+                eprintln!("Error occurred while removing issue fields from the local database")
             } else {
                 eprintln!("updated Issue fields in database: {row_affected} rows were deleted")
             }

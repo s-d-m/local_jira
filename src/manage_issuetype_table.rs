@@ -3,7 +3,7 @@ use sqlx::{FromRow, Pool, Sqlite};
 use crate::get_config::Config;
 use crate::get_json_from_url::get_json_from_url;
 use crate::get_str_for_key;
-use crate::utils::get_inputs_not_in_db;
+use crate::utils::get_inputs_in_remote_not_in_db;
 
 #[derive(FromRow, Debug, Eq, PartialEq, Hash)]
 pub(crate) struct IssueType {
@@ -74,7 +74,7 @@ fn get_issue_types_not_in_db<'a, 'b>(issue_types: &'a Vec<IssueType>, issue_type
                                      -> Vec<&'a IssueType>
   where 'b: 'a
 {
-  get_inputs_not_in_db(issue_types.as_slice(), issue_types_in_db.as_slice())
+  get_inputs_in_remote_not_in_db(issue_types.as_slice(), issue_types_in_db.as_slice())
 }
 
 async fn insert_issuetypes_to_database(db_conn: &mut Pool<Sqlite>, issuetypes_to_insert: Vec<&IssueType>) {

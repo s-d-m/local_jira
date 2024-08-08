@@ -5,7 +5,7 @@ use sqlx::types::Json;
 use crate::get_config::Config;
 use crate::get_json_from_url::get_json_from_url;
 use crate::manage_issuetype_table::IssueType;
-use crate::utils::get_inputs_not_in_db;
+use crate::utils::get_inputs_in_remote_not_in_db;
 
 #[derive(FromRow, Debug, Eq, PartialEq, Hash)]
 pub(crate) struct Project {
@@ -110,7 +110,7 @@ fn get_projects_not_in_db<'a, 'b>(projects: &'a Vec<Project>, projects_in_db: &'
                                   -> Vec<&'a Project>
   where 'b: 'a
 {
-  get_inputs_not_in_db(projects.as_slice(), projects_in_db.as_slice())
+  get_inputs_in_remote_not_in_db(projects.as_slice(), projects_in_db.as_slice())
 }
 
 fn get_issue_types_per_project_not_in_db<'a, 'b>(issue_types_per_project: &'a Vec<IssueTypePerProject>,
@@ -118,7 +118,7 @@ fn get_issue_types_per_project_not_in_db<'a, 'b>(issue_types_per_project: &'a Ve
                               -> Vec<&'a IssueTypePerProject>
   where 'b: 'a
 {
-  get_inputs_not_in_db(issue_types_per_project.as_slice(), issue_types_per_project_in_db.as_slice())
+  get_inputs_in_remote_not_in_db(issue_types_per_project.as_slice(), issue_types_per_project_in_db.as_slice())
 }
 
 async fn insert_issue_types_per_project_in_db(issue_types_per_project_to_insert: Vec<&IssueTypePerProject>,
@@ -344,5 +344,4 @@ async fn update_project_list_in_db(config: &Config, mut db_conn: &mut Pool<Sqlit
   let issue_types_per_project_in_db = get_issue_types_per_project_in_db(&db_conn).await;
   let issue_types_per_project_to_insert = get_issue_types_per_project_not_in_db(&issue_types_per_project, &issue_types_per_project_in_db);
   insert_issue_types_per_project_in_db(issue_types_per_project_to_insert, &mut db_conn).await;
-
 }
