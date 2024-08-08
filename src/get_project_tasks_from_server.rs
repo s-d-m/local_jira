@@ -32,6 +32,11 @@ pub(crate) async fn get_project_tasks_from_server(
         return Err(first_json.err().unwrap());
     };
 
+    // todo(perf): here we issue a first query to get the maxResults, and after we run the next ones
+    // asynchronously. The maxResults is unlikely to change a lots, therefore it can be
+    // cached between runs and we can then run all the queries simultaneously without
+    // having to wait for the first one.
+
     let max_result_per_query = first_json
         .as_object()
         .and_then(|x| x.get("maxResults"))
@@ -79,11 +84,11 @@ pub(crate) async fn get_project_tasks_from_server(
                 res.push(v)
             },
             Ok(Ok(Err(e))) => {
-                eprintln!("Error occured: {e}")
+                eprintln!("Error occurred while retrieving project tasks from server: {e}")
             }
             Ok(Err(e))
             | Err(e) => {
-                eprintln!("Failed to join spawned task {e:?}")
+                eprintln!("Failed to join spawned task while getting project tasks from server {e:?}")
             }
         };
     }
