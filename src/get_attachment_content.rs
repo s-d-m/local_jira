@@ -23,6 +23,21 @@ fn is_uuid(candidate: &str) -> bool {
     if dummy.len() != 5 {
         return false;
     }
+    if dummy[0].len() != 8 {
+        return false;
+    }
+    if dummy[1].len() != 4 {
+        return false;
+    }
+    if dummy[2].len() != 4 {
+        return false;
+    }
+    if dummy[3].len() != 4 {
+        return false;
+    }
+    if dummy[4].len() != 11 {
+        return false;
+    }
 
     let is_str_hexa = |s: &str| -> bool { s.chars().all(|c| c.is_ascii_hexdigit())};
     let res = dummy.into_iter().all(is_str_hexa);
