@@ -24,9 +24,9 @@ async fn get_one_json(
 }
 
 // returns a list of issues plus a boolean indicating if there might be more issues to update.
-// In other words, the boolean tells if it found an issue which is already up to date.
+// In other words, the boolean tells if it found an issue which is already up-to-date.
 // in such case, since loading must be done from oldest to newest, any further issue should
-// normally be up to date already
+// normally be up-to-date already
 #[derive(Debug)]
 pub struct issue_data {
     pub id: i64,
@@ -40,8 +40,8 @@ enum FoundIssueUpToDate {
     ONE_ISSUE_IS_UP_TO_DATE,
 }
 
-async fn get_issues_from_json_that_need_updating<'a>(
-    json_data: &'a Value,
+async fn get_issues_from_json_that_need_updating(
+    json_data: &Value,
     db_conn: &Pool<Sqlite>,
 ) -> Result<(Vec<issue_data>, FoundIssueUpToDate), String> {
     let json_data = json_data
