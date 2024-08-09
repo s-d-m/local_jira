@@ -9,6 +9,7 @@ use sqlx::types::{Json, JsonValue};
 use tokio::net::tcp::ReuniteError;
 use tokio::task::JoinSet;
 use crate::get_config::Config;
+use crate::get_issue_details::add_details_to_issue_in_db;
 use crate::get_project_tasks_from_server::get_project_tasks_from_server;
 use crate::manage_issue_field::fill_issues_fields;
 use crate::manage_project_table::Project;
@@ -433,7 +434,7 @@ async fn update_issue_links_in_db(issues_ids: &[u32], issue_links: &Vec<IssueLin
   }
 }
 
-async fn update_given_project_in_db(config: Config, project_key: String, db_conn: Pool<Sqlite>) {
+async fn update_given_project_in_db(config: Config, project_key: String, mut db_conn: Pool<Sqlite>) {
   let json_tickets = get_project_tasks_from_server(project_key.as_str(), &config).await;
   let mut db_handle = db_conn.clone();
 
@@ -474,6 +475,24 @@ async fn update_given_project_in_db(config: Config, project_key: String, db_conn
         (_, Err(e)) => { eprintln!("Error: {e}") }
         (Err(e), Ok(_)) => { eprintln!("Not updating links due to former error {e}")}
       }
+    }
+
+    let issues_keys = issues_and_links
+      .iter()
+      .filter_map(|(json_tickets, issues, links)| {
+        match issues {
+          Ok(a) => {Some(a.iter())}
+          Err(_) => {None}
+        }
+      })
+      .flatten()
+      .map(|x| &x.key)
+      .collect::<Vec<_>>();
+
+    for key in issues_keys {
+      add_details_to_issue_in_db(&config,
+                                 &key,
+                                 &mut db_conn).await
     }
   }
 }

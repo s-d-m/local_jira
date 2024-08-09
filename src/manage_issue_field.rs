@@ -4,9 +4,16 @@ use sqlx::{FromRow, Pool, Sqlite};
 use std::cmp::Ordering;
 use std::collections::HashSet;
 
+#[derive(Hash, Eq, PartialEq, FromRow, Debug)]
+pub(crate) struct KeyValueProperty {
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(Debug)]
 pub(crate) struct IssueProperties {
     pub(crate) issue_id: u32,
-    pub(crate) properties: Vec<(String /* key */, String /* value */)>,
+    pub(crate) properties: Vec<KeyValueProperty>,
 }
 
 fn get_issues_properties(json_data: &Value) -> Result<Vec<IssueProperties>, String> {
@@ -45,7 +52,7 @@ fn get_issues_properties(json_data: &Value) -> Result<Vec<IssueProperties>, Stri
                 .iter()
                 .filter_map(|(key, value)| match value.as_null() {
                     Some(()) => None,
-                    None => Some((key.to_string(), value.to_string())),
+                    None => Some(KeyValueProperty{key: key.to_string(), value: value.to_string()}),
                 })
                 .collect::<Vec<_>>();
 
@@ -78,7 +85,7 @@ fn get_flattened_properties(
             let flattened_properties = x
                 .properties
                 .iter()
-                .map(|(key, value)| BrokenIssueProperties {
+                .map(|KeyValueProperty{key, value}| BrokenIssueProperties {
                     issue_id: x.issue_id,
                     field_id: key.to_string(),
                     field_value: value.to_string(),
@@ -217,61 +224,15 @@ pub(crate) async fn fill_issues_fields(json_data: &Value, db_conn: &mut Pool<Sql
         .zip(flattened_properties_in_db.iter())
         .all(|(a, b)| a.0 == b.0));
 
-    let properties_to_remove = get_properties_in_db_not_in_remote(
-        flattened_properties.as_slice(),
-        flattened_properties_in_db.as_slice(),
-    );
     let properties_to_insert = get_properties_in_remote_not_in_db(
         flattened_properties.as_slice(),
         flattened_properties_in_db.as_slice(),
     );
 
-    match properties_to_remove.is_empty() {
-        true => {
-            eprintln!("No field issue in local database but deleted from remote found.")
-        }
-        false => {
-            let query_str = "DELETE FROM IssueField
-                      WHERE issue_id = ?
-                      AND field_id = ?;";
-
-            let mut has_error = false;
-            let mut row_affected = 0;
-            let mut tx = db_conn
-                .begin()
-                .await
-                .expect("Error when starting a sql transaction");
-
-            for BrokenIssueProperties {
-                issue_id,
-                field_id,
-                field_value,
-            } in properties_to_remove
-            {
-                let res = sqlx::query(query_str)
-                    .bind(issue_id)
-                    .bind(field_id)
-                    .execute(&mut *tx)
-                    .await;
-
-                match res {
-                    Ok(e) => row_affected += e.rows_affected(),
-                    Err(e) => {
-                        has_error = true;
-                        eprintln!("Error when removing an issue field with (issue_id {issue_id}, field_id: {field_id}, value: {field_value}): {e}");
-                    }
-                }
-            }
-
-            tx.commit().await.unwrap();
-
-            if has_error {
-                eprintln!("Error occurred while removing issue fields from the local database")
-            } else {
-                eprintln!("updated Issue fields in database: {row_affected} rows were deleted")
-            }
-        }
-    }
+    // do not remove properties in db but not in remote here. This is because jira returns less
+    // data when downloading {maxResults} issues at a time, than when accessing a single field.
+    // deleting data here would mean removing the extra data we get when updating a single ticket.
+    // To keep things properly synchronised, we can only remove fields when updating single tickets.
 
     match properties_to_insert.is_empty() {
         true => {

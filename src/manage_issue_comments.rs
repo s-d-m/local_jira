@@ -163,32 +163,37 @@ struct IssueId {
     id: i64,
 }
 
+#[derive(FromRow)]
+struct CommentId {
+  id: i64,
+}
+
 async fn get_comments_id_from_db_for_issue(
     issue_id: u32,
     db_conn: &mut Pool<Sqlite>,
-) -> Option<Vec<IssueId>> {
+) -> Vec<CommentId> {
     let query_str = "SELECT id
      FROM Comment
      WHERE issue_id = ?";
 
-    let rows = sqlx::query_as::<_, IssueId>(query_str)
+    let rows = sqlx::query_as::<_, CommentId>(query_str)
         .fetch_all(&*db_conn)
         .await;
 
     match rows {
-        Ok(data) => Some(data),
+        Ok(data) => data,
         Err(e) => {
             eprintln!("Error occurred while trying to get comments id from local database for issue {issue_id}: {e}");
-            None
+            Vec::new()
         }
     }
 }
 
 fn get_comments_in_db_not_in_remote<'a>(
-    comments_from_remote: &[commentFromJson],
-    comments_in_local_db: &'a [IssueId],
-) -> Vec<&'a IssueId> {
-    let ids_on_remote = comments_from_remote
+  comments_in_remote: &[commentFromJson],
+  comments_in_local_db: &'a [CommentId],
+) -> Vec<&'a CommentId> {
+    let ids_on_remote = comments_in_remote
         .iter()
         .map(|x| x.id)
         .collect::<HashSet<_>>();
@@ -386,15 +391,14 @@ pub async fn add_comments_for_issue_into_db(
     issue_id: u32,
     db_conn: &mut Pool<Sqlite>,
 ) {
-    let Some(comments_in_remote) = get_comments_from_server_for_issue(&config, issue_id).await
+    let Some(comments_in_remote_for_issue) = get_comments_from_server_for_issue(&config, issue_id).await
     else {
         return;
     };
-    let comment_ids_in_db = get_comments_id_from_db_for_issue(issue_id, db_conn).await;
-    let comments_ids_in_db = comment_ids_in_db.unwrap_or_default();
+    let comment_ids_in_db_for_issue = get_comments_id_from_db_for_issue(issue_id, db_conn).await;
 
     let comments_to_remove =
-        get_comments_in_db_not_in_remote(comments_in_remote.as_ref(), comments_ids_in_db.as_ref());
+        get_comments_in_db_not_in_remote(comments_in_remote_for_issue.as_ref(), comment_ids_in_db_for_issue.as_slice());
 
     let comments_to_remove = comments_to_remove
         .into_iter()
@@ -402,5 +406,5 @@ pub async fn add_comments_for_issue_into_db(
         .collect::<Vec<_>>();
 
     remove_comments_no_longer_on_remote(comments_to_remove.as_ref(), db_conn).await;
-    add_comments_in_db(comments_in_remote.as_ref(), db_conn).await;
+    add_comments_in_db(comments_in_remote_for_issue.as_ref(), db_conn).await;
 }

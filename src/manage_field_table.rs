@@ -122,11 +122,6 @@ where 'b: 'a
   get_inputs_in_db_not_in_remote(fields_in_remote.as_slice(), fields_in_db.as_slice())
 }
 
-async fn insert_fields_to_database(db_conn: &mut Pool<Sqlite>, fields_to_insert: Vec<&Field>) {
-
-}
-
-
 pub(crate)
 async fn update_fields_in_db(config: &Config, db_conn: &mut Pool<Sqlite>) {
   let fields_in_remote = get_fields_from_server(&config).await;
