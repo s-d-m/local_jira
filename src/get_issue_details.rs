@@ -403,10 +403,12 @@ async fn update_attachments_in_db(
         .bind(issue_id)
         .fetch_all(&*db_conn)
         .await;
-    let Ok(query_res) = query_res else {
-        eprintln!("Error while retrieving the already known attachments for issue with id {issue_id}. Error: {e}",
-    e = query_res.err().unwrap().to_string());
-        return;
+    let query_res = match query_res {
+        Ok(v) => {v}
+        Err(e) => {
+            eprintln!("Error while retrieving the already known attachments for issue with id {issue_id}. Error: {e:?}",);
+            return;
+        }
     };
 
     // find the files which are no longer attached to issue_id. The attachments parameters is the
