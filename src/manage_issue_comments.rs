@@ -165,7 +165,7 @@ struct IssueId {
 
 #[derive(FromRow)]
 struct CommentId {
-  id: i64,
+    id: i64,
 }
 
 async fn get_comments_id_from_db_for_issue(
@@ -190,8 +190,8 @@ async fn get_comments_id_from_db_for_issue(
 }
 
 fn get_comments_in_db_not_in_remote<'a>(
-  comments_in_remote: &[commentFromJson],
-  comments_in_local_db: &'a [CommentId],
+    comments_in_remote: &[commentFromJson],
+    comments_in_local_db: &'a [CommentId],
 ) -> Vec<&'a CommentId> {
     let ids_on_remote = comments_in_remote
         .iter()
@@ -232,10 +232,7 @@ async fn remove_comments_no_longer_on_remote(
 
     let query_str = "DELETE FROM Comments WHERE id = ?";
     for key in comments_ids_to_remove {
-        let res = sqlx::query(query_str)
-          .bind(key.id)
-          .execute(&mut *tx)
-          .await;
+        let res = sqlx::query(query_str).bind(key.id).execute(&mut *tx).await;
         match res {
             Ok(e) => row_affected += e.rows_affected(),
             Err(e) => {
@@ -254,65 +251,102 @@ async fn remove_comments_no_longer_on_remote(
     }
 }
 
+#[derive(FromRow)]
+struct AccountId {
+    account_id: String,
+}
+
+fn get_authors_in_comments_not_in_db<'a>(
+    authors_in_comments: &[&'a Author],
+    authors_in_db: &[AccountId],
+) -> Vec<&'a Author> {
+    let authors_in_db = authors_in_db
+        .iter()
+        .map(|x| x.account_id.as_str())
+        .collect::<HashSet<_>>();
+
+    let res = authors_in_comments
+        .into_iter()
+        .map(|x| *x)
+        .filter(|x| !authors_in_db.contains(x.accountId.as_str()))
+        .collect::<Vec<_>>();
+
+    res
+}
+
 async fn add_comments_in_db(comments: &[commentFromJson], db_conn: &mut Pool<Sqlite>) {
-    let authors = comments
-      .iter()
-      .map(|x| &x.author)
-      .collect::<Vec<_>>();
+    let authors_in_comments = comments.iter().map(|x| &x.author).collect::<Vec<_>>();
 
-    let mut has_error = false;
-    let mut row_affected = 0;
+    let query_str = "SELECT accountId as account_id From People";
+    let authors_in_db = sqlx::query_as::<_, AccountId>(query_str)
+        .fetch_all(&*db_conn)
+        .await;
 
-    let mut tx = db_conn
-        .begin()
-        .await
-        .expect("Error when starting a sql transaction");
+    let authors_in_db = match authors_in_db {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("Error occurred while fetching the authors in db: {e:?}");
+            Vec::new()
+        }
+    };
 
-    // todo(perf): these insert are likely very inefficient since we insert
-    // one element at a time instead of doing bulk insert.
-    // check https://stackoverflow.com/questions/65789938/rusqlite-insert-multiple-rows
-    // and https://www.sqlite.org/c3ref/c_limit_attached.html#sqlitelimitvariablenumber
-    // for the SQLITE_LIMIT_VARIABLE_NUMBER maximum number of parameters that can be
-    // passed in a query.
-    // splitting an iterator in chunks would come in handy here.
+    let authors_to_insert =
+        get_authors_in_comments_not_in_db(authors_in_comments.as_slice(), authors_in_db.as_slice());
 
-    // todo(perf): add detection of what is already in db and do some filter out. Here we happily
-    // overwrite data with the exact same ones, thus taking the write lock on the
-    // database for longer than necessary.
-    // Plus it means the logs aren't that useful to troubleshoot how much data changed
-    // in the database. Seeing messages saying
-    // 'updated Issue fields in database: 58 rows were updated'
-    // means there has been at most 58 changes. Chances are there are actually been
-    // none since the last update.
-    let query_str = "INSERT INTO People (accountId, displayName) VALUES
+    match authors_to_insert.is_empty() {
+        true => {
+            eprintln!("No new comment authors found")
+        }
+        false => {
+            let mut has_error = false;
+            let mut row_affected = 0;
+
+            let mut tx = db_conn
+                .begin()
+                .await
+                .expect("Error when starting a sql transaction");
+
+            // todo(perf): these insert are likely very inefficient since we insert
+            // one element at a time instead of doing bulk insert.
+            // check https://stackoverflow.com/questions/65789938/rusqlite-insert-multiple-rows
+            // and https://www.sqlite.org/c3ref/c_limit_attached.html#sqlitelimitvariablenumber
+            // for the SQLITE_LIMIT_VARIABLE_NUMBER maximum number of parameters that can be
+            // passed in a query.
+            // splitting an iterator in chunks would come in handy here.
+
+             let query_str = "INSERT INTO People (accountId, displayName) VALUES
                 (?, ?)
             ON CONFLICT DO
             UPDATE SET displayName = excluded.displayName";
 
-    // first, insert the authors since the comments references as a foreign key
-    for Author {
-        accountId,
-        displayName,
-    } in authors
-    {
-        let res = sqlx::query(query_str)
-            .bind(accountId)
-            .bind(displayName)
-            .execute(&mut *tx)
-            .await;
-        match res {
-            Ok(e) => row_affected += e.rows_affected(),
-            Err(e) => {
-                has_error = true;
-                eprintln!("Error: {e}")
+            // first, insert the authors since the comments references them as a foreign key
+            for Author {
+                accountId,
+                displayName,
+            } in authors_to_insert
+            {
+                let res = sqlx::query(query_str)
+                    .bind(accountId)
+                    .bind(displayName)
+                    .execute(&mut *tx)
+                    .await;
+                match res {
+                    Ok(e) => row_affected += e.rows_affected(),
+                    Err(e) => {
+                        has_error = true;
+                        eprintln!("Error: {e}")
+                    }
+                }
             }
-        }
-    }
 
-    if has_error {
-        eprintln!("Error occurred while updating the database with Authors")
-    } else {
-        eprintln!("updated Authors in database: {row_affected} rows were updated")
+            if has_error {
+                eprintln!("Error occurred while updating the database with Authors")
+            } else {
+                eprintln!("updated Authors in database: {row_affected} rows were updated")
+            }
+
+            tx.commit().await.unwrap();
+        }
     }
 
     let mut has_error = false;
@@ -345,6 +379,11 @@ async fn add_comments_in_db(comments: &[commentFromJson], db_conn: &mut Pool<Sql
                        author = excluded.author,
                        creation_time = excluded.creation_time,
                        last_modification_time = excluded.last_modification_time";
+
+    let mut tx = db_conn
+      .begin()
+      .await
+      .expect("Error when starting a sql transaction");
 
     for (
         commentFromJson {
@@ -391,14 +430,17 @@ pub async fn add_comments_for_issue_into_db(
     issue_id: u32,
     db_conn: &mut Pool<Sqlite>,
 ) {
-    let Some(comments_in_remote_for_issue) = get_comments_from_server_for_issue(&config, issue_id).await
+    let Some(comments_in_remote_for_issue) =
+        get_comments_from_server_for_issue(&config, issue_id).await
     else {
         return;
     };
     let comment_ids_in_db_for_issue = get_comments_id_from_db_for_issue(issue_id, db_conn).await;
 
-    let comments_to_remove =
-        get_comments_in_db_not_in_remote(comments_in_remote_for_issue.as_ref(), comment_ids_in_db_for_issue.as_slice());
+    let comments_to_remove = get_comments_in_db_not_in_remote(
+        comments_in_remote_for_issue.as_ref(),
+        comment_ids_in_db_for_issue.as_slice(),
+    );
 
     let comments_to_remove = comments_to_remove
         .into_iter()
