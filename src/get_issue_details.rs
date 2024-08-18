@@ -145,10 +145,10 @@ async fn update_properties_in_db_for_issue(
         &issue_properties_in_db,
     );
 
-    dbg!(&issue_properties_in_remote);
-    dbg!(&issue_properties_in_db);
-    dbg!(&issue_properties_to_insert);
-    dbg!(&issue_properties_to_remove);
+    // dbg!(&issue_properties_in_remote);
+    // dbg!(&issue_properties_in_db);
+    // dbg!(&issue_properties_to_insert);
+    // dbg!(&issue_properties_to_remove);
 
     match issue_properties_to_remove.is_empty() {
         true => {
