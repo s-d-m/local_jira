@@ -6,6 +6,7 @@ use sqlx::sqlite::SqliteQueryResult;
 use sqlx::types::JsonValue;
 use sqlx::{Error, FromRow, Pool, Sqlite};
 use std::collections::{HashMap, HashSet};
+use crate::manage_issue_field::remove_surrounding_quotes;
 
 #[derive(Debug)]
 struct Author {
@@ -89,11 +90,21 @@ async fn get_comments_from_server_for_issue(
         eprintln!("expected comment has the wrong format. Missing 'created' field");
         return None;
       };
+      let Some(created) = created.as_str() else {
+        eprintln!("created value has the wrong type. Should be a json string. is '{x}' instead", x = created.to_string());
+        return None;
+      };
+
 
       let Some(modified) = x.get("updated") else {
         eprintln!("expected comment has the wrong format. Missing 'updated' field");
         return None;
       };
+      let Some(modified) = modified.as_str() else {
+        eprintln!("updated value has the wrong type. Should be a json string. is '{x}' instead", x = modified.to_string());
+        return None;
+      };
+
       let Some(content) = x.get("body") else {
         eprintln!("expected comment has the wrong format. Missing 'updated' field");
         return None;
@@ -145,10 +156,14 @@ async fn get_comments_from_server_for_issue(
           return None;
         }
       };
+      let created = created.to_string();
+      let modified = modified.to_string();
+      let created = remove_surrounding_quotes(created);
+      let modified = remove_surrounding_quotes(modified);
       Some(commentFromJson {
         author,
-        created: created.to_string(),
-        modified: modified.to_string(),
+        created,
+        modified,
         content: content.to_string(),
         issue_id,
         id,
@@ -375,7 +390,7 @@ async fn update_comments_in_db(comments_in_remote_for_issue: Vec<commentFromJson
       // passed in a query.
       // splitting an iterator in chunks would come in handy here.
 
-      let query_str = "DELETE FROM Comments WHERE id = ?";
+      let query_str = "DELETE FROM Comment WHERE id = ?";
       for comment in comments_to_remove {
         let key = comment.id;
         let res = sqlx::query(query_str)
