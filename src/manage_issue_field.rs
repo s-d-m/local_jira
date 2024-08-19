@@ -3,6 +3,7 @@ use serde_json::Value;
 use sqlx::{FromRow, Pool, Sqlite};
 use std::cmp::Ordering;
 use std::collections::HashSet;
+use crate::manage_issuetype_table::IssueType;
 
 #[derive(Hash, Eq, PartialEq, FromRow, Debug)]
 pub(crate) struct KeyValueProperty {
@@ -66,18 +67,71 @@ fn get_issues_properties(json_data: &Value) -> Result<Vec<IssueProperties>, Stri
     Ok(properties)
 }
 
+// jira seems to enclose some fields with quotes and others not, which is
+// inconvenient
+pub fn remove_surrounding_quotes(in_str: String) -> String {
+    if in_str.starts_with('"') && in_str.ends_with('"') {
+        let len = in_str.len();
+        // todo(perf): check how to remove the chars direction from the string
+        // without creating a new one
+        let maybe_res = &in_str[1..(len - 1)];
+        if maybe_res.contains('"') {
+          // only remove surrounding quotes in there are none inside the
+          // string. Otherwise, it is possible to accidentally change the
+          // meaning of the string: e.g. the string
+          // "John Doe" is nicer than "M. 23"
+          // would get changed to
+          // John Doe" is nicer than "M. 23
+          // Unfortunately, there are no fully good solution here. For
+          // the following string
+          // "units are either "m/s" or "km/h" but never imperial units"
+          // we ideally would remove the quotes at the beginning and end,
+          // but how to tell that string apart than the example with John Doe?
+            in_str
+        } else {
+            String::from(maybe_res)
+        }
+    } else {
+        in_str
+    }
+}
+
+pub fn remove_surrounding_quotes_in_properties(issue_properties: IssueProperties) -> IssueProperties {
+    let properties = issue_properties.properties;
+    let properties = properties
+      .into_iter()
+      .map(|KeyValueProperty{ key, value }| {
+          let key = remove_surrounding_quotes(key);
+          let value = remove_surrounding_quotes(value);
+          KeyValueProperty {key, value }
+      })
+      .collect::<Vec<_>>();
+
+    IssueProperties {
+        issue_id: issue_properties.issue_id,
+        properties,
+    }
+}
+
+fn remove_surrounding_quotes_in_fields(properties: Vec<IssueProperties>) -> Vec<IssueProperties> {
+    let res = properties
+      .into_iter()
+      .map(remove_surrounding_quotes_in_properties)
+      .collect::<Vec<_>>();
+    res
+}
+
 #[derive(Hash, FromRow, Eq, PartialEq)]
 struct BrokenIssueProperties {
     issue_id: u32,
     field_id: String,
     field_value: String,
 }
-
 fn get_flattened_properties(
     issue_properties: &[IssueProperties],
 ) -> Vec<(
     u32, /* issue id */
-    HashSet<crate::manage_issue_field::BrokenIssueProperties>,
+    HashSet<BrokenIssueProperties>,
 )> {
     let flattened_properties = issue_properties
         .iter()
@@ -85,10 +139,12 @@ fn get_flattened_properties(
             let flattened_properties = x
                 .properties
                 .iter()
-                .map(|KeyValueProperty{key, value}| BrokenIssueProperties {
-                    issue_id: x.issue_id,
-                    field_id: key.to_string(),
-                    field_value: value.to_string(),
+                .map(|KeyValueProperty{key, value}| {
+                    BrokenIssueProperties {
+                        issue_id: x.issue_id,
+                        field_id: key.to_string(),
+                        field_value: value.to_string(),
+                    }
                 })
                 .collect::<HashSet<_>>();
             (x.issue_id, flattened_properties)
@@ -204,8 +260,8 @@ fn get_properties_in_remote_not_in_db<'a>(
 }
 
 pub(crate) async fn fill_issues_fields(json_data: &Value, db_conn: &mut Pool<Sqlite>) {
-    let properties = get_issues_properties(&json_data);
-    let properties = match properties {
+    let properties_in_remote = get_issues_properties(&json_data);
+    let properties_in_remote = match properties_in_remote {
         Ok(v) => v,
         Err(e) => {
             eprintln!("Error: {e}");
@@ -213,19 +269,23 @@ pub(crate) async fn fill_issues_fields(json_data: &Value, db_conn: &mut Pool<Sql
         }
     };
 
-    let flattened_properties = get_flattened_properties(&properties);
-    let ids = properties.iter().map(|a| a.issue_id).collect::<Vec<_>>();
+    let ids = properties_in_remote.iter().map(|a| a.issue_id).collect::<Vec<_>>();
+
+    let properties_in_remote = remove_surrounding_quotes_in_fields(properties_in_remote);
+
+    let flattened_properties_in_remote = get_flattened_properties(&properties_in_remote);
+
     let flattened_properties_in_db =
         get_flattened_properties_from_db(ids.as_ref(), db_conn.clone()).await;
 
-    assert_eq!(flattened_properties.len(), flattened_properties_in_db.len());
-    assert!(flattened_properties
+    assert_eq!(flattened_properties_in_remote.len(), flattened_properties_in_db.len());
+    assert!(flattened_properties_in_remote
         .iter()
         .zip(flattened_properties_in_db.iter())
         .all(|(a, b)| a.0 == b.0));
 
     let properties_to_insert = get_properties_in_remote_not_in_db(
-        flattened_properties.as_slice(),
+        flattened_properties_in_remote.as_slice(),
         flattened_properties_in_db.as_slice(),
     );
 
