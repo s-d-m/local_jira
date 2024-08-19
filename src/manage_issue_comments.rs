@@ -184,6 +184,7 @@ async fn get_comments_from_db_for_issue(
        ORDER BY position_in_array";
 
     let rows = sqlx::query_as::<_, CommentsFromDbForIssue>(query_str)
+        .bind(issue_id)
         .fetch_all(&*db_conn)
         .await;
 
@@ -223,8 +224,8 @@ struct CommentsDifference<'a> {
   comments_in_db_not_in_remote: Vec<&'a CommentsFromDbForIssue>,
   comments_in_remote_not_in_db: Vec<&'a CommentsFromDbForIssue>
 }
-fn get_comments_in_remote_not_in_db<'a>(comments_in_remote: &'a [CommentsFromDbForIssue],
-                                    comments_in_db: &'a [CommentsFromDbForIssue]) -> CommentsDifference<'a> {
+fn get_difference_in_comments<'a>(comments_in_remote: &'a [CommentsFromDbForIssue],
+                                  comments_in_db: &'a [CommentsFromDbForIssue]) -> CommentsDifference<'a> {
 
   let comments_in_remote = comments_in_remote
     .iter()
@@ -252,7 +253,7 @@ fn get_comments_in_remote_not_in_db<'a>(comments_in_remote: &'a [CommentsFromDbF
 }
 
 
-async fn update_comments_in_db(comments_in_remote_for_issue: &[commentFromJson],
+async fn update_comments_in_db(comments_in_remote_for_issue: Vec<commentFromJson>,
                                comments_in_db_for_issue: &[CommentsFromDbForIssue],
                                issue_id:u32, db_conn: &mut Pool<Sqlite>) {
     let authors_in_comments = comments_in_remote_for_issue
@@ -333,21 +334,21 @@ async fn update_comments_in_db(comments_in_remote_for_issue: &[commentFromJson],
     }
 
   let comments_in_remote_for_issue = comments_in_remote_for_issue
-    .iter()
+    .into_iter()
     .enumerate()
     .map(|(pos_in_arrau, comment_from_json)| CommentsFromDbForIssue {
       id: comment_from_json.id,
       position_in_array: pos_in_arrau as u32,
-      content_data: comment_from_json.content.clone(),
-      author: comment_from_json.author.accountId.clone(),
-      creation_time: comment_from_json.created.clone(),
-      last_modification_time: comment_from_json.modified.clone(),
+      content_data: comment_from_json.content,
+      author: comment_from_json.author.accountId,
+      creation_time: comment_from_json.created,
+      last_modification_time: comment_from_json.modified,
     })
     .collect::<Vec<_>>();
 
 
-  let comments_difference = get_comments_in_remote_not_in_db(&comments_in_remote_for_issue,
-                                                              comments_in_db_for_issue);
+  let comments_difference = get_difference_in_comments(&comments_in_remote_for_issue,
+                                                       comments_in_db_for_issue);
 
   let comments_to_remove = comments_difference.comments_in_db_not_in_remote;
   let comments_to_insert = comments_difference.comments_in_remote_not_in_db;
@@ -392,9 +393,9 @@ async fn update_comments_in_db(comments_in_remote_for_issue: &[commentFromJson],
       tx.commit().await.unwrap();
 
       if has_error {
-        eprintln!("Error occurred while updating the database with Link types")
+        eprintln!("Error occurred while updating comments (removing) for issue with id {issue_id}.")
       } else {
-        eprintln!("updated Link types in database: {row_affected} rows were updated")
+        eprintln!("updated Comments in database (removing) for issue with id {issue_id}: {row_affected} rows were updated")
       }
     }
   }
@@ -482,9 +483,10 @@ pub async fn add_comments_for_issue_into_db(
     };
 
     let comments_in_db_for_issue = get_comments_from_db_for_issue(issue_id, db_conn).await;
+    dbg!(&comments_in_remote_for_issue);
+    dbg!(&comments_in_db_for_issue);
 
-
-    update_comments_in_db(comments_in_remote_for_issue.as_ref(),
+    update_comments_in_db(comments_in_remote_for_issue,
                           comments_in_db_for_issue.as_ref(),
                           issue_id, db_conn).await;
 }

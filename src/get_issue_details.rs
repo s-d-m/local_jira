@@ -155,9 +155,10 @@ async fn update_properties_in_db_for_issue(
             eprintln!("No properties for issue {issue_key} (issue_id: {issue_id}) found in local db that isn't also in remote")
         }
         false => {
-            let query_str = "DELETE FROM IssueField
-                              WHERE issue_id = ?
-                                AND field_id = ?";
+            let query_str =
+              "DELETE FROM IssueField
+              WHERE issue_id = ?
+              AND field_id = ?";
 
             let mut has_error = false;
             let mut row_affected = 0;
@@ -255,10 +256,11 @@ async fn get_attachments_in_db_for_issue(
     config: &Config,
     db_conn: &mut Pool<Sqlite>,
 ) -> Vec<IssueAttachment> {
-    let query_str = "SELECT field_value
-                          FROM IssueField
-                          WHERE     (IssueField.issue_id == ?)
-                                AND (IssueField.field_id == \"attachment\");";
+    let query_str =
+      "SELECT field_value
+      FROM IssueField
+      WHERE (IssueField.issue_id == ?)
+            AND (IssueField.field_id == \"attachment\");";
 
     let query_res = sqlx::query_as::<_, AttachmentValue>(query_str)
         .bind(issue_id)
@@ -550,7 +552,7 @@ async fn download_attachments_for_missing_content(
         }
     };
 
-    // todo: parallelise this loop
+    // todo(perf): parallelise this loop
     for AttachmentIdAndFileSize { id, file_size } in query_res {
         let f_data = get_bytes_content(&config, id).await;
         let bytes = f_data.bytes;
