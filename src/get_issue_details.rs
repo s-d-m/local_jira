@@ -526,6 +526,7 @@ async fn delete_attachments_in_db_but_not_in_server(
         .await
         .expect("Error when starting a sql transaction");
 
+    // todo(perf): these deletes happen one at a time. Look to see if there is a way to do bulk remove
     for id in ids_in_db_not_in_server {
         let id = id.id;
         let res = sqlx::query(query_str)
@@ -582,7 +583,6 @@ async fn download_attachments_for_missing_content(
                 if len == file_size as usize {
                     eprintln!("INSERTING BLOB with len {file_size} for attachment {id}");
 
-                    // todo(perf) only update if there is a change
                     let query_str = "UPDATE Attachment
                                    SET content_data = ?
                                    WHERE id = ?;";
