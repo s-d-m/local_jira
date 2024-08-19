@@ -103,63 +103,55 @@ async fn update_issues_in_db(issues_to_insert: &Vec<Issue>, db_conn: &mut Pool<S
     .filter(|x| !hashed_issues_in_db.contains(x))
     .collect::<Vec<_>>();
 
-  if issues_to_insert.is_empty() {
-    eprintln!("No new issue found for project [{project_key}]");
-    return;
-  }
+  match issues_to_insert.is_empty() {
+    true => { eprintln!("No new issue found for project [{project_key}]") }
+    false => {
+      let mut has_error = false;
+      let mut row_affected = 0;
+      let mut tx = db_conn
+        .begin()
+        .await
+        .expect("Error when starting a sql transaction");
 
-  let mut has_error = false;
-  let mut row_affected = 0;
-  let mut tx = db_conn
-    .begin()
-    .await
-    .expect("Error when starting a sql transaction");
+      // todo(perf): these insert are likely very inefficient since we insert
+      // one element at a time instead of doing bulk insert.
+      // check https://stackoverflow.com/questions/65789938/rusqlite-insert-multiple-rows
+      // and https://www.sqlite.org/c3ref/c_limit_attached.html#sqlitelimitvariablenumber
+      // for the SQLITE_LIMIT_VARIABLE_NUMBER maximum number of parameters that can be
+      // passed in a query.
+      // splitting an iterator in chunks would come in handy here.
 
-  // todo(perf): these insert are likely very inefficient since we insert
-  // one element at a time instead of doing bulk insert.
-  // check https://stackoverflow.com/questions/65789938/rusqlite-insert-multiple-rows
-  // and https://www.sqlite.org/c3ref/c_limit_attached.html#sqlitelimitvariablenumber
-  // for the SQLITE_LIMIT_VARIABLE_NUMBER maximum number of parameters that can be
-  // passed in a query.
-  // splitting an iterator in chunks would come in handy here.
-
-  // todo(perf): add detection of what is already in db and do some filter out. Here we happily
-  // overwrite data with the exact same ones, thus taking the write lock on the
-  // database for longer than necessary.
-  // Plus it means the logs aren't that useful to troubleshoot how much data changed
-  // in the database. Seeing messages saying
-  // 'updated Issue in database: 58 rows were updated'
-  // means there has been at most 58 changes. Chances are there are actually been
-  // none since the last update.
-  let query_str =
-    "INSERT INTO Issue (jira_id, key, project_key) VALUES
+      let query_str =
+        "INSERT INTO Issue (jira_id, key, project_key) VALUES
                 (?, ?, ?)
             ON CONFLICT DO
             UPDATE SET key = excluded.key,
                        project_key = excluded.project_key";
 
-  for Issue { jira_id, key, project_key } in issues_to_insert {
-    let res = sqlx::query(query_str)
-      .bind(jira_id)
-      .bind(key)
-      .bind(project_key)
-      .execute(&mut *tx)
-      .await;
-    match res {
-      Ok(e) => { row_affected += e.rows_affected() }
-      Err(e) => {
-        has_error = true;
-        eprintln!("Error when adding (jira_id {jira_id}, key: {key}, project_key: {project_key}): {e}")
+      for Issue { jira_id, key, project_key } in issues_to_insert {
+        let res = sqlx::query(query_str)
+          .bind(jira_id)
+          .bind(key)
+          .bind(project_key)
+          .execute(&mut *tx)
+          .await;
+        match res {
+          Ok(e) => { row_affected += e.rows_affected() }
+          Err(e) => {
+            has_error = true;
+            eprintln!("Error when adding (jira_id {jira_id}, key: {key}, project_key: {project_key}): {e}")
+          }
+        }
+      }
+
+      tx.commit().await.unwrap();
+
+      if has_error {
+        eprintln!("Error occurred while updating the database with Issue")
+      } else {
+        eprintln!("updated Issues in database: {row_affected} rows were updated")
       }
     }
-  }
-
-  tx.commit().await.unwrap();
-
-  if has_error {
-    eprintln!("Error occurred while updating the database with Issue")
-  } else {
-    eprintln!("updated Issues in database: {row_affected} rows were updated")
   }
 }
 
