@@ -4,6 +4,7 @@ use crate::get_str_for_key;
 use crate::utils::{get_inputs_in_db_not_in_remote, get_inputs_in_remote_not_in_db};
 use sqlx::{FromRow, Pool, Sqlite};
 use std::collections::HashSet;
+use serde_json::Value;
 
 #[derive(FromRow, Debug, Eq, PartialEq, Hash)]
 pub(crate) struct IssueLinkType {
@@ -33,11 +34,12 @@ async fn get_link_types_from_database(db_conn: &Pool<Sqlite>) -> Vec<IssueLinkTy
 async fn get_issue_link_types_from_server(config: &Config) -> Result<Vec<IssueLinkType>, String> {
     let query = "/rest/api/2/issueLinkType";
     let json_data = get_json_from_url(config, query).await;
-    let Ok(json_data) = json_data else {
+    let json_data = match json_data {
+      Ok(v) => {v}
+      Err(e) => {
         return Err(format!(
-            "Error: failed to get list of link types from server.\n{e}",
-            e = json_data.err().unwrap().to_string()
-        ));
+          "Error: failed to get list of link types from server.\n{e}"));
+      }
     };
 
     let Some(json_array) = json_data.as_object() else {
