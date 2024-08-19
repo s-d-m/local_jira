@@ -851,6 +851,66 @@ fn media_single_to_string(media_single_item: &Map<String, Value>) -> StringWithN
     }
 }
 
+fn inline_card_to_string(inline_card: &Map<String, Value>) -> StringWithNodeLevel {
+    let Some(attrs) = inline_card.get("attrs") else {
+        eprintln!("Invalid InlineCard found. Doesn't have an 'attrs' attribute");
+        let res = json_map_to_string(inline_card);
+        let res = to_inline(res);
+        return res;
+    };
+
+    let Some(attrs) = attrs.as_object() else {
+        eprintln!("Invalid InlineCard found. 'attrs' attribute isn't a json object");
+        let res = json_map_to_string(inline_card);
+        let res = to_inline(res);
+        return res;
+    };
+
+    // https://developer.atlassian.com/cloud/jira/platform/apis/document/nodes/inlineCard/
+    // says that either url or data must be provided, but not both
+    let url = attrs.get("url");
+    let data = attrs.get("data");
+
+    let res = match (url, data) {
+        (None, None) => {
+            eprintln!("Invalid InlineCard found. 'attrs' doesn't contain an neither an 'url' not 'data' attribute");
+            json_map_to_string(inline_card)
+        },
+        (Some(url), None) => {
+            // the link above says that url must be a json object, but the provided
+            // example displays url as a json string
+            if let Some(url_as_str) = url.as_str() {
+                 url_as_str.to_string()
+            } else if let Some(url_as_object) = url.as_object() {
+                json_map_to_string(url_as_object)
+            } else {
+                eprintln!("Invalid InlineCard found. 'url' is neither a string nor an object");
+                url.to_string()
+            }
+        },
+        (Some(url), Some(data)) => {
+            eprintln!("Invalid InlineCard found. 'attrs' contains both an 'url' and 'data' attributes. Only one expected");
+            json_map_to_string(inline_card)
+        },
+        (None, Some(data)) => {
+            match data.as_object() {
+                None => {
+                    eprintln!("Invalid InlineCard found. 'attrs' contains a 'data' attributes, but it is not a json object");
+                    data.to_string()
+                },
+                Some(data_as_object) => {
+                    json_map_to_string(data_as_object)
+                }
+            }
+        }
+    };
+
+    StringWithNodeLevel {
+        text: res,
+        node_level: NodeLevel::Inline,
+    }
+}
+
 fn media_group_to_string(media_group_item: &Map<String, Value>) -> StringWithNodeLevel {
     let Some(content) =  media_group_item.get("content") else {
         return json_to_toplevel_string(media_group_item);
@@ -901,7 +961,7 @@ fn object_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
         "emoji" => emoji_to_string(json),
         "hardBreak" => hardbreak_to_string(json),
         "heading" => heading_to_string(json),
-        // "inlineCard" => inlinecard_to_string(json),
+        "inlineCard" => inline_card_to_string(json),
         "listItem" => list_item_to_string(json),
         "media" => media_to_string(json),
         "mediaSingle" => media_single_to_string(json),
