@@ -428,7 +428,9 @@ async fn update_attachments_in_db(
     let ids_in_db_not_in_server = query_res
         .iter()
         .filter(|a| {
-            let is_in_server = attachments.iter().any(|x| x.attachment_id == a.id);
+            let is_in_server = attachments
+              .iter()
+              .any(|x| x.attachment_id == a.id);
             !is_in_server
         })
         .collect::<Vec<_>>();

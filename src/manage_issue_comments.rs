@@ -353,8 +353,8 @@ async fn update_comments_in_db(comments_in_remote_for_issue: Vec<commentFromJson
   let comments_to_remove = comments_difference.comments_in_db_not_in_remote;
   let comments_to_insert = comments_difference.comments_in_remote_not_in_db;
 
-  dbg!(&comments_to_remove);
-  dbg!(&comments_to_insert);
+  // dbg!(&comments_to_remove);
+  // dbg!(&comments_to_insert);
 
   match comments_to_remove.is_empty() {
     true => { eprintln!("No comments was updated or removed for issue with id {issue_id}")}
@@ -483,8 +483,6 @@ pub async fn add_comments_for_issue_into_db(
     };
 
     let comments_in_db_for_issue = get_comments_from_db_for_issue(issue_id, db_conn).await;
-    dbg!(&comments_in_remote_for_issue);
-    dbg!(&comments_in_db_for_issue);
 
     update_comments_in_db(comments_in_remote_for_issue,
                           comments_in_db_for_issue.as_ref(),
