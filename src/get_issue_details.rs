@@ -682,12 +682,13 @@ pub(crate) async fn add_details_to_issue_in_db(
             &mut db_conn_for_update_attachment,
         )
         .await;
-        download_attachments_for_missing_content(
-            &config,
-            issue_id,
-            &mut db_conn_for_download_attachment,
-        )
-        .await;
-        add_comments_for_issue_into_db(&config, issue_id, &mut db_conn_for_comment).await;
+        tokio::join!(
+            download_attachments_for_missing_content(
+                &config,
+                issue_id,
+                &mut db_conn_for_download_attachment,
+            ),
+            add_comments_for_issue_into_db(&config, issue_id, &mut db_conn_for_comment)
+        );
     }
 }
