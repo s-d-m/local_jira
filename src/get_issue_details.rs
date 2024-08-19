@@ -14,6 +14,7 @@ use sqlx::{Error, FromRow, Pool, Sqlite};
 use std::collections::HashSet;
 use std::io::Read;
 use std::num::ParseIntError;
+use crate::find_issues_that_need_updating::issue_data;
 
 async fn get_one_json(config: &Config, issue_key: &str) -> Result<JsonValue, String> {
     let query = format!("/rest/api/3/issue/{issue_key}");
@@ -432,18 +433,9 @@ async fn update_attachments_in_db(
         })
         .collect::<Vec<_>>();
 
-    let (mut has_error, mut row_affected) =
-        delete_attachments_in_db_but_not_in_server(db_conn, ids_in_db_not_in_server).await;
+    delete_attachments_in_db_but_not_in_server(db_conn, ids_in_db_not_in_server, issue_id).await;
 
     // Add attachments which are in the remote server but not yet in the database
-    // todo(perf): add detection of what is already in db and do some filter out. Here we happily
-    // overwrite data with the exact same ones, thus taking the write lock on the
-    // database for longer than necessary.
-    // Plus it means the logs aren't that useful to troubleshoot how much data changed
-    // in the database. Seeing messages saying
-    // 'updated Issue fields in database: 58 rows were updated'
-    // means there has been at most 58 changes. Chances are there are actually been
-    // none since the last update.
     let query_str = "INSERT INTO Attachment (uuid, id, issue_id, filename, mime_type, file_size)
      VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT DO
@@ -468,36 +460,57 @@ async fn update_attachments_in_db(
         .map(|x| add_details_to_attachment(issue_id, x))
         .collect::<Vec<_>>();
 
-    let mut tx = db_conn
-        .begin()
-        .await
-        .expect("Error when starting a sql transaction");
+    match ids_in_server_not_in_db.is_empty() {
+        true => { eprintln!("No new attachments for issue with id {issue_id}") }
+        false => {
+            let mut has_error= false;
+            let mut row_affected = 0;
 
-    for attachment in ids_in_server_not_in_db {
-        let res = sqlx::query(query_str)
-            .bind(attachment.uuid)
-            .bind(attachment.attachment_id)
-            .bind(attachment.issue_id)
-            .bind(attachment.filename)
-            .bind(attachment.mime_type)
-            .bind(attachment.size)
-            .execute(&mut *tx)
-            .await;
-        match res {
-            Ok(e) => row_affected += e.rows_affected(),
-            Err(e) => {
-                has_error = true;
-                eprintln!("Error while inserting into attachment table: {e}")
+            let mut tx = db_conn
+              .begin()
+              .await
+              .expect("Error when starting a sql transaction");
+
+            for AttachmentWithFileDetails {
+                attachment_id,
+                filename,
+                mime_type,
+                size,
+                uuid,
+                issue_id
+            } in ids_in_server_not_in_db {
+                let res = sqlx::query(query_str)
+                  .bind(uuid)
+                  .bind(attachment_id)
+                  .bind(issue_id)
+                  .bind(filename)
+                  .bind(mime_type)
+                  .bind(size)
+                  .execute(&mut *tx)
+                  .await;
+                match res {
+                    Ok(e) => row_affected += e.rows_affected(),
+                    Err(e) => {
+                        has_error = true;
+                        eprintln!("Error while inserting attachment with id {attachment_id} for issue with id {issue_id} into attachment table: {e}")
+                    }
+                }
+            }
+            tx.commit().await.unwrap();
+
+            if has_error {
+                eprintln!("Error occurred while inserting attachments belonging to issue with id {issue_id})");
+            } else {
+                eprintln!("{row_affected} attachments belonging to issue with id {issue_id} were added");
             }
         }
     }
-    tx.commit().await.unwrap();
 }
 
 async fn delete_attachments_in_db_but_not_in_server(
     db_conn: &mut Pool<Sqlite>,
     ids_in_db_not_in_server: Vec<&AttachmentId>,
-) -> (bool, u64) {
+    issue_id: u32) {
     // delete attachments which are in the db, but not on the remote server
     // anymore.
     let mut has_error = false;
@@ -512,17 +525,26 @@ async fn delete_attachments_in_db_but_not_in_server(
         .expect("Error when starting a sql transaction");
 
     for id in ids_in_db_not_in_server {
-        let res = sqlx::query(query_str).bind(id.id).execute(&mut *tx).await;
+        let id = id.id;
+        let res = sqlx::query(query_str)
+          .bind(id)
+          .execute(&mut *tx)
+          .await;
         match res {
             Ok(e) => row_affected += e.rows_affected(),
             Err(e) => {
                 has_error = true;
-                eprintln!("Error while deleting from attachment table: {e}")
+                eprintln!("Error while deleting attachment with id {id} (belonging to issue with id {issue_id}). Err: {e}")
             }
         }
     }
     tx.commit().await.unwrap();
-    (has_error, row_affected)
+
+    if has_error {
+        eprintln!("Error while removing attachments old belonging to issue with id {issue_id})");
+    } else {
+        eprintln!("{row_affected} attachments belonging to issue with id {issue_id} were deleted");
+    }
 }
 
 async fn download_attachments_for_missing_content(
@@ -533,16 +555,11 @@ async fn download_attachments_for_missing_content(
     let query_str = "SELECT id, file_size  FROM Attachment
      WHERE issue_id = ?
        AND content_data IS NULL;";
-    let mut tx = db_conn
-        .begin()
-        .await
-        .expect("Error when starting a sql transaction");
 
     let query_res = sqlx::query_as::<_, AttachmentIdAndFileSize>(query_str)
         .bind(issue_id)
-        .fetch_all(&mut *tx)
+        .fetch_all(&*db_conn)
         .await;
-    tx.commit().await.unwrap();
 
     let query_res = match query_res {
         Ok(e) => e,
@@ -589,7 +606,7 @@ async fn download_attachments_for_missing_content(
                         }
                     }
                 } else {
-                    eprintln!("Can't update attachment with id {id} because the downloaded content has the wrong size. Expected {file_size}, got {len}");
+                    eprintln!("Can't update attachment with id {id} (belonging to issue with id {issue_id}) because the downloaded content has the wrong size. Expected {file_size}, got {len}");
                 }
             }
         }
@@ -597,7 +614,7 @@ async fn download_attachments_for_missing_content(
         match uuid {
             None => {
                 eprintln!(
-                    "Can't update the uuid of attachment with id {id} because none was found"
+                    "Can't update the uuid of attachment with id {id} (belonging to issue with id {issue_id}) because none was found"
                 );
             }
             Some(uuid) => {
@@ -619,10 +636,10 @@ async fn download_attachments_for_missing_content(
 
                 match query_res {
                     Ok(e) => {
-                        eprintln!("{x} row updated ", x = e.len());
+                        eprintln!("{x} attachments belonging to issue with id {issue_id} got its uuid set", x = e.len());
                     }
                     Err(e) => {
-                        eprintln!("Error: {e}");
+                        eprintln!("Error while setting the uuid field of attachments belonging to issue with id {issue_id}). Err: {e}");
                     }
                 }
             }

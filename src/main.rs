@@ -30,7 +30,6 @@ mod get_config;
 mod get_issue_details;
 mod get_json_from_url;
 mod get_project_tasks_from_server;
-mod insert_or_update_interesting_projects_in_db;
 mod manage_field_table;
 mod manage_interesting_projects;
 mod manage_issue_comments;
