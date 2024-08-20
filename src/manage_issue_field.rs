@@ -96,31 +96,6 @@ pub fn remove_surrounding_quotes(in_str: String) -> String {
     }
 }
 
-pub fn remove_surrounding_quotes_in_properties(issue_properties: IssueProperties) -> IssueProperties {
-    let properties = issue_properties.properties;
-    let properties = properties
-      .into_iter()
-      .map(|KeyValueProperty{ key, value }| {
-          let key = remove_surrounding_quotes(key);
-          let value = remove_surrounding_quotes(value);
-          KeyValueProperty {key, value }
-      })
-      .collect::<Vec<_>>();
-
-    IssueProperties {
-        issue_id: issue_properties.issue_id,
-        properties,
-    }
-}
-
-fn remove_surrounding_quotes_in_fields(properties: Vec<IssueProperties>) -> Vec<IssueProperties> {
-    let res = properties
-      .into_iter()
-      .map(remove_surrounding_quotes_in_properties)
-      .collect::<Vec<_>>();
-    res
-}
-
 #[derive(Hash, FromRow, Eq, PartialEq)]
 struct BrokenIssueProperties {
     issue_id: u32,
@@ -269,9 +244,10 @@ pub(crate) async fn fill_issues_fields(json_data: &Value, db_conn: &mut Pool<Sql
         }
     };
 
-    let ids = properties_in_remote.iter().map(|a| a.issue_id).collect::<Vec<_>>();
-
-    let properties_in_remote = remove_surrounding_quotes_in_fields(properties_in_remote);
+    let ids = properties_in_remote
+      .iter()
+      .map(|a| a.issue_id)
+      .collect::<Vec<_>>();
 
     let flattened_properties_in_remote = get_flattened_properties(&properties_in_remote);
 

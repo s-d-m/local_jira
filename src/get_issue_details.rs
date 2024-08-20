@@ -1,9 +1,10 @@
+use crate::manage_issue_field::KeyValueProperty;
+use crate::manage_issue_field::IssueProperties;
 use crate::get_attachment_content::get_bytes_content;
 use crate::get_config::Config;
 use crate::get_json_from_url::get_json_from_url;
 use crate::manage_interesting_projects::{get_id, Issue};
 use crate::manage_issue_comments::add_comments_for_issue_into_db;
-use crate::manage_issue_field::{IssueProperties, KeyValueProperty, remove_surrounding_quotes_in_properties};
 use crate::manage_project_table::Project;
 use crate::utils::{get_inputs_in_db_not_in_remote, get_inputs_in_remote_not_in_db};
 use html2text::parse;
@@ -134,8 +135,6 @@ async fn update_properties_in_db_for_issue(
             return;
         }
     };
-
-    let issue_properties_in_remote = remove_surrounding_quotes_in_properties(issue_properties_in_remote);
 
     let issue_id = issue_properties_in_remote.issue_id;
     let issue_properties_in_db = get_issue_properties_in_db(issue_id, db_conn).await;
