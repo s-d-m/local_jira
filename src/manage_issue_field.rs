@@ -67,35 +67,6 @@ fn get_issues_properties(json_data: &Value) -> Result<Vec<IssueProperties>, Stri
     Ok(properties)
 }
 
-// jira seems to enclose some fields with quotes and others not, which is
-// inconvenient
-pub fn remove_surrounding_quotes(in_str: String) -> String {
-    if in_str.starts_with('"') && in_str.ends_with('"') {
-        let len = in_str.len();
-        // todo(perf): check how to remove the chars direction from the string
-        // without creating a new one
-        let maybe_res = &in_str[1..(len - 1)];
-        if maybe_res.contains('"') {
-          // only remove surrounding quotes in there are none inside the
-          // string. Otherwise, it is possible to accidentally change the
-          // meaning of the string: e.g. the string
-          // "John Doe" is nicer than "M. 23"
-          // would get changed to
-          // John Doe" is nicer than "M. 23
-          // Unfortunately, there are no fully good solution here. For
-          // the following string
-          // "units are either "m/s" or "km/h" but never imperial units"
-          // we ideally would remove the quotes at the beginning and end,
-          // but how to tell that string apart than the example with John Doe?
-            in_str
-        } else {
-            String::from(maybe_res)
-        }
-    } else {
-        in_str
-    }
-}
-
 #[derive(Hash, FromRow, Eq, PartialEq)]
 struct BrokenIssueProperties {
     issue_id: u32,
@@ -234,16 +205,7 @@ fn get_properties_in_remote_not_in_db<'a>(
     res
 }
 
-pub(crate) async fn fill_issues_fields(json_data: &Value, db_conn: &mut Pool<Sqlite>) {
-    let properties_in_remote = get_issues_properties(&json_data);
-    let properties_in_remote = match properties_in_remote {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("Error: {e}");
-            return;
-        }
-    };
-
+pub(crate) async fn fill_issues_fields(properties_in_remote: &Vec<IssueProperties>, db_conn: &mut Pool<Sqlite>) {
     let ids = properties_in_remote
       .iter()
       .map(|a| a.issue_id)
@@ -252,13 +214,13 @@ pub(crate) async fn fill_issues_fields(json_data: &Value, db_conn: &mut Pool<Sql
     let flattened_properties_in_remote = get_flattened_properties(&properties_in_remote);
 
     let flattened_properties_in_db =
-        get_flattened_properties_from_db(ids.as_ref(), db_conn.clone()).await;
+      get_flattened_properties_from_db(ids.as_ref(), db_conn.clone()).await;
 
     assert_eq!(flattened_properties_in_remote.len(), flattened_properties_in_db.len());
     assert!(flattened_properties_in_remote
-        .iter()
-        .zip(flattened_properties_in_db.iter())
-        .all(|(a, b)| a.0 == b.0));
+      .iter()
+      .zip(flattened_properties_in_db.iter())
+      .all(|(a, b)| a.0 == b.0));
 
     let properties_to_insert = get_properties_in_remote_not_in_db(
         flattened_properties_in_remote.as_slice(),
@@ -283,9 +245,9 @@ pub(crate) async fn fill_issues_fields(json_data: &Value, db_conn: &mut Pool<Sql
             let mut has_error = false;
             let mut row_affected = 0;
             let mut tx = db_conn
-                .begin()
-                .await
-                .expect("Error when starting a sql transaction");
+              .begin()
+              .await
+              .expect("Error when starting a sql transaction");
 
             for BrokenIssueProperties {
                 issue_id,
@@ -294,11 +256,11 @@ pub(crate) async fn fill_issues_fields(json_data: &Value, db_conn: &mut Pool<Sql
             } in properties_to_insert
             {
                 let res = sqlx::query(query_str)
-                    .bind(issue_id)
-                    .bind(field_id)
-                    .bind(field_value)
-                    .execute(&mut *tx)
-                    .await;
+                  .bind(issue_id)
+                  .bind(field_id)
+                  .bind(field_value)
+                  .execute(&mut *tx)
+                  .await;
 
                 match res {
                     Ok(e) => row_affected += e.rows_affected(),
@@ -318,4 +280,17 @@ pub(crate) async fn fill_issues_fields(json_data: &Value, db_conn: &mut Pool<Sql
             }
         }
     }
+}
+
+pub(crate) async fn fill_issues_fields_from_json(json_data: &Value, db_conn: &mut Pool<Sqlite>) {
+    let properties_in_remote = get_issues_properties(&json_data);
+    let properties_in_remote = match properties_in_remote {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("Error: {e}");
+            return;
+        }
+    };
+
+    fill_issues_fields(&properties_in_remote, db_conn).await
 }

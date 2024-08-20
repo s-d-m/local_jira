@@ -5,7 +5,7 @@ use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
-use crate::find_issues_that_need_updating::get_issues_that_need_updating;
+use crate::find_issues_that_need_updating::update_interesting_projects_in_db;
 use base64::Engine;
 use sqlx;
 use sqlx::migrate::MigrateDatabase;
@@ -14,7 +14,7 @@ use sqlx::{Execute, Executor, FromRow, Pool, Sqlite, SqlitePool, Statement};
 use crate::get_config::{get_config, Config};
 use crate::get_issue_details::add_details_to_issue_in_db;
 use crate::manage_field_table::update_fields_in_db;
-use crate::manage_interesting_projects::update_interesting_projects_in_db;
+use crate::manage_interesting_projects::initialise_interesting_projects_in_db;
 use crate::manage_issuelinktype_table::update_issue_link_types_in_db;
 use crate::manage_issuetype_table::update_issue_types_in_db;
 use crate::manage_project_table::update_project_list_in_db;
@@ -93,7 +93,17 @@ pub async fn main() {
     };
 
     let db_path = config.local_database();
-    let mut db = init_db(db_path).await.unwrap();
+    let db = init_db(db_path)
+      .await;
+
+    let mut db = match db {
+        Ok(v) => {v}
+        Err(e) => {
+            eprintln!("Error while initialising the database. Err: {e}");
+            return;
+        }
+    };
+
 
     {
         let mut db_issue_type_handle = &mut db.clone();
@@ -108,6 +118,12 @@ pub async fn main() {
             update_project_list_in_db(&config, &mut db_project_list_handle)
         );
     }
+
+//    initialise_interesting_projects_in_db(&config, &mut db).await;
+eprintln!("START UPDATING INTERESTING PROJECT");
     update_interesting_projects_in_db(&config, &mut db).await;
+eprintln!("STOP UPDATING INTERESTING PROJECT");
+
+
     server::server_request_loop(&db).await;
 }

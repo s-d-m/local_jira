@@ -11,16 +11,16 @@ use tokio::task::JoinSet;
 use crate::get_config::Config;
 use crate::get_issue_details::add_details_to_issue_in_db;
 use crate::get_project_tasks_from_server::get_project_tasks_from_server;
-use crate::manage_issue_field::fill_issues_fields;
+use crate::manage_issue_field::fill_issues_fields_from_json;
 use crate::manage_project_table::Project;
 
 
 #[derive(FromRow, Hash, PartialEq, Eq, Debug)]
 pub(crate)
 struct Issue {
-  jira_id: u32,
-  key: String,
-  project_key: String,
+  pub(crate) jira_id: u32,
+  pub(crate) key: String,
+  pub(crate) project_key: String,
 }
 
 fn get_issues_from_json(json_data: &Value, project_key: &str) -> Result<Vec<Issue>, String> {
@@ -87,7 +87,7 @@ pub(crate) struct fields_in_db {
 }
 
 
-async fn update_issues_in_db(issues_to_insert: &Vec<Issue>, db_conn: &mut Pool<Sqlite>, project_key: &str) {
+pub(crate) async fn update_issues_in_db(issues_to_insert: &Vec<Issue>, db_conn: &mut Pool<Sqlite>, project_key: &str) {
   let issues_in_db = get_issues_from_db(&db_conn).await;
   let issues_in_db = match issues_in_db {
     Ok(v) => {v}
@@ -156,11 +156,11 @@ async fn update_issues_in_db(issues_to_insert: &Vec<Issue>, db_conn: &mut Pool<S
 }
 
 #[derive(FromRow, Clone, Debug, Hash, Eq, PartialEq)]
-struct IssueLink {
-  jira_id: u32,
-  link_type_id: u32,
-  outward_issue_id: u32,
-  inward_issue_id: u32,
+pub(crate) struct IssueLink {
+  pub(crate) jira_id: u32,
+  pub(crate) link_type_id: u32,
+  pub(crate) outward_issue_id: u32,
+  pub(crate) inward_issue_id: u32,
 }
 
 pub(crate) fn get_id(json_data: &Value) -> Option<u32> {
@@ -230,7 +230,7 @@ fn get_link_type(json_data: &Value) -> Option<(u32 /* link id */, bool /* is out
   Some((link_id, is_outward, other_issue_id, link_type_id))
 }
 
-fn get_issue_links_from_json(json_data: &Value) -> Result<Vec<IssueLink>, String> {
+pub(crate) fn get_issue_links_from_json(json_data: &Value) -> Result<Vec<IssueLink>, String> {
   let Some(v) = json_data.get("issues") else {
     return Err(String::from("No field named 'issues' in the json"));
   };
@@ -316,7 +316,7 @@ async fn get_links_from_db(jira_ids: &[u32], db_conn: &mut Pool<Sqlite>) -> Hash
 }
 
 
-async fn update_issue_links_in_db(issues_ids: &[u32], issue_links: &Vec<IssueLink>, db_conn: &mut Pool<Sqlite>) {
+pub(crate) async fn update_issue_links_in_db(issues_ids: &[u32], issue_links: &Vec<IssueLink>, db_conn: &mut Pool<Sqlite>) {
   //dbg!(&issue_links);
   if issue_links.is_empty() {
     return;
@@ -426,7 +426,7 @@ async fn update_issue_links_in_db(issues_ids: &[u32], issue_links: &Vec<IssueLin
   }
 }
 
-async fn update_given_project_in_db(config: Config, project_key: String, mut db_conn: Pool<Sqlite>) {
+async fn initialise_given_project_in_db(config: Config, project_key: String, mut db_conn: Pool<Sqlite>) {
   let json_tickets = get_project_tasks_from_server(project_key.as_str(), &config).await;
   let mut db_handle = db_conn.clone();
 
@@ -448,7 +448,7 @@ async fn update_given_project_in_db(config: Config, project_key: String, mut db_
         Err(e) => { eprintln!("Error: {e}"); }
       }
 
-      fill_issues_fields(&json_tickets, &mut db_handle).await;
+      fill_issues_fields_from_json(&json_tickets, &mut db_handle).await;
     }
 
     // First insert all issues in the db, and then insert the links between issues.
@@ -489,12 +489,12 @@ async fn update_given_project_in_db(config: Config, project_key: String, mut db_
   }
 }
 
-pub(crate) async fn update_interesting_projects_in_db(config: &Config, db_conn: &mut Pool<Sqlite>) {
+pub(crate) async fn initialise_interesting_projects_in_db(config: &Config, db_conn: &mut Pool<Sqlite>) {
   let interesting_projects = config.interesting_projects();
 
   let mut tasks = interesting_projects
     .iter()
-    .map(|x| tokio::spawn(update_given_project_in_db(config.clone(), x.clone(), db_conn.clone())))
+    .map(|x| tokio::spawn(initialise_given_project_in_db(config.clone(), x.clone(), db_conn.clone())))
     .collect::<JoinSet<_>>();
 
   while let Some(res) = tasks.join_next().await {

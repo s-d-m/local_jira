@@ -6,7 +6,7 @@ use sqlx::sqlite::SqliteQueryResult;
 use sqlx::types::JsonValue;
 use sqlx::{Error, FromRow, Pool, Sqlite};
 use std::collections::{HashMap, HashSet};
-use crate::manage_issue_field::remove_surrounding_quotes;
+use crate::utils::remove_surrounding_quotes;
 
 #[derive(Debug)]
 struct Author {

@@ -1,3 +1,4 @@
+use std::cmp::Ordering::{Equal, Greater, Less};
 use crate::find_issues_that_need_updating::FoundIssueUpToDate::ONE_ISSUE_IS_UP_TO_DATE;
 use crate::get_config::Config;
 use crate::get_json_from_url::get_json_from_url;
@@ -5,6 +6,12 @@ use crate::manage_issuelinktype_table::IssueLinkType;
 use serde_json::Value;
 use sqlx::types::JsonValue;
 use sqlx::{FromRow, Pool, Sqlite};
+use tokio::task::JoinSet;
+use crate::get_issue_details::add_details_to_issue_in_db;
+use crate::get_project_tasks_from_server::get_project_tasks_from_server;
+use crate::manage_interesting_projects::{get_issue_links_from_json, Issue, IssueLink, update_issue_links_in_db, update_issues_in_db};
+use crate::manage_issue_field::{fill_issues_fields, fill_issues_fields_from_json, IssueProperties, KeyValueProperty};
+use crate::utils::get_str_without_surrounding_quotes;
 
 async fn get_one_json(
     project_key: &str,
@@ -23,15 +30,18 @@ async fn get_one_json(
     Ok(json_data)
 }
 
-// returns a list of issues plus a boolean indicating if there might be more issues to update.
-// In other words, the boolean tells if it found an issue which is already up-to-date.
-// in such case, since loading must be done from oldest to newest, any further issue should
-// normally be up-to-date already
 #[derive(Debug)]
 pub struct issue_data {
     pub id: i64,
     pub jira_issue: String,
     pub last_updated: String,
+    pub fields: serde_json::map::Map<String, serde_json::Value>
+}
+
+#[derive(Debug)]
+pub struct issue_and_links {
+    issues: Vec<issue_data>,
+    links: Vec<IssueLink>,
 }
 
 #[derive(PartialEq, Debug)]
@@ -40,10 +50,23 @@ enum FoundIssueUpToDate {
     ONE_ISSUE_IS_UP_TO_DATE,
 }
 
-async fn get_issues_from_json_that_need_updating(
+// returns a list of issues and links plus a boolean indicating if there might be more issues to update.
+// In other words, the boolean tells if it found an issue which is already up-to-date.
+// in such case, since loading must be done from oldest to newest, any further issue should
+// normally be up-to-date already
+async fn get_issues_and_link_from_json_that_need_updating(
     json_data: &Value,
     db_conn: &Pool<Sqlite>,
-) -> Result<(Vec<issue_data>, FoundIssueUpToDate), String> {
+) -> Result<(issue_and_links, FoundIssueUpToDate), String> {
+    let links = get_issue_links_from_json(json_data);
+    let links = match links {
+        Ok(v) => {v}
+        Err(e) => {
+            eprintln!("Error while trying to retrieve links for json: Err {e}");
+            vec![]
+        }
+    };
+
     let json_data = json_data
         .as_object()
         .and_then(|x| x.get("issues"))
@@ -60,12 +83,19 @@ async fn get_issues_from_json_that_need_updating(
         .iter()
         .filter_map(|x| x.as_object())
         .filter_map(|x| {
-            let id = x.get("id").and_then(|x| x.as_str());
-            let id = id.and_then(|x| x.parse::<i64>().ok());
-            let jira_issue = x.get("key").and_then(|x| x.as_str());
-            let last_updated = x
-                .get("fields")
-                .and_then(|x| x.as_object())
+            let id = x
+              .get("id")
+              .and_then(|x| x.as_str());
+            let id = id
+              .and_then(|x| x.parse::<i64>().ok());
+            let jira_issue = x
+              .get("key")
+              .and_then(|x| x.as_str());
+            let issue_fields = x
+              .get("fields")
+              .and_then(|x| x.as_object());
+
+            let last_updated = issue_fields
                 .and_then(|x| x.get("updated"))
                 .and_then(|x| x.as_str());
 
@@ -75,7 +105,12 @@ async fn get_issues_from_json_that_need_updating(
             };
 
             let Some(jira_issue) = jira_issue else {
-                eprintln!("received json data didn't have an issue number");
+                eprintln!("received json data didn't have an issue number (id: {id})");
+                return None;
+            };
+
+            let Some(issue_fields) = issue_fields else {
+                eprintln!("received json data for issue {jira_issue} (id: {id}) doesn't contain fields");
                 return None;
             };
 
@@ -88,9 +123,11 @@ async fn get_issues_from_json_that_need_updating(
                 id,
                 jira_issue: jira_issue.to_string(),
                 last_updated: last_updated.to_string(),
+                fields: issue_fields.clone(),
             })
         })
         .collect::<Vec<_>>();
+
 
     #[derive(FromRow, Debug)]
     struct LastModified {
@@ -113,17 +150,7 @@ async fn get_issues_from_json_that_need_updating(
 
         match row {
             Ok(Some(data)) => {
-                let timestamp_to_use = if data.timestamp.starts_with('"') {
-                    &data.timestamp[1..]
-                } else {
-                    &data.timestamp
-                };
-                let timestamp_to_use = if timestamp_to_use.ends_with('"') {
-                    let end = timestamp_to_use.len() - 1;
-                    &timestamp_to_use[0..end]
-                } else {
-                    timestamp_to_use
-                };
+                let timestamp_to_use = get_str_without_surrounding_quotes(data.timestamp.as_str());
                 eprintln!(
                     "Comparing\n{a}\n{b}\n\n",
                     a = timestamp_to_use,
@@ -131,7 +158,11 @@ async fn get_issues_from_json_that_need_updating(
                 );
                 if timestamp_to_use == issue.last_updated {
                     return Ok((
-                        issues_to_update,
+                        issue_and_links {
+                            issues: issues_to_update,
+                            links,
+                        },
+
                         FoundIssueUpToDate::ONE_ISSUE_IS_UP_TO_DATE,
                     ));
                 }
@@ -146,7 +177,10 @@ async fn get_issues_from_json_that_need_updating(
             }
         }
     }
-    Ok((issues_to_update, FoundIssueUpToDate::NO_ISSUE_IS_UP_TO_DATE))
+    Ok((issue_and_links {
+        issues: issues_to_update,
+        links,
+    }, FoundIssueUpToDate::NO_ISSUE_IS_UP_TO_DATE))
 }
 
 // this here assumes that we load new tickets or update existing ones from oldest to newest.
@@ -154,17 +188,17 @@ async fn get_issues_from_json_that_need_updating(
 // for all BBB that are lower than AAA. The consequence here is that we can stop looking
 // for tickets which are out of date as soon as we find out where its update time
 // on the server matches its update time field on the local database
-pub(crate) async fn get_issues_that_need_updating(
+async fn get_issues_and_links_that_need_updating(
     project_key: &str,
     config: &Config,
     db_conn: &Pool<Sqlite>,
-) -> Result<Vec<issue_data>, String> {
+) -> Result<issue_and_links, String> {
     eprintln!(
         "Querying issues/tasks for project {project_key} in search of tickets that need updating"
     );
     let max_result_per_query = -1; // -1 is a special value telling jira "no limit"
                                    // the returned json will tell us what is the configured limit
-    let first_json = get_one_json(project_key, config, 0, max_result_per_query).await;
+    let first_json = get_one_json(project_key, &config, 0, max_result_per_query).await;
     let Ok(first_json) = first_json else {
         return Err(first_json.err().unwrap());
     };
@@ -186,7 +220,7 @@ pub(crate) async fn get_issues_that_need_updating(
         .and_then(|x| x.as_i64());
 
     let first_issues_to_update =
-        get_issues_from_json_that_need_updating(&first_json, db_conn).await;
+        get_issues_and_link_from_json_that_need_updating(&first_json, db_conn).await;
     let first_issues_to_update = match first_issues_to_update {
         Ok(a) => a,
         Err(e) => {
@@ -217,10 +251,13 @@ pub(crate) async fn get_issues_that_need_updating(
         match next_json {
             Ok(next_json) => {
                 let new_issues_to_update =
-                    get_issues_from_json_that_need_updating(&next_json, db_conn).await;
+                    get_issues_and_link_from_json_that_need_updating(&next_json, db_conn).await;
                 match new_issues_to_update {
                     Ok(mut v) => {
-                        res.append(&mut v.0);
+                        let mut issues_and_links_from_this_json = v.0;
+                        res.links.append(&mut issues_and_links_from_this_json.links);
+                        res.issues.append(&mut issues_and_links_from_this_json.issues);
+
                         if v.1 == ONE_ISSUE_IS_UP_TO_DATE {
                             return Ok(res);
                         }
@@ -237,4 +274,89 @@ pub(crate) async fn get_issues_that_need_updating(
     }
 
     Ok(res)
+}
+
+
+async fn update_given_project_in_db(config: Config, project_key: String, mut db_conn: Pool<Sqlite>) {
+    let issues_and_links_to_update = get_issues_and_links_that_need_updating(project_key.as_str(), &config, &db_conn).await;
+    let mut db_handle = db_conn.clone();
+
+    if let Ok(issues_and_links_to_update) = issues_and_links_to_update {
+        // First insert all issues in the db, and then insert the links between issues.
+        // This avoids the issues where inserting links fails due to foreign constraints violation
+        // at the database layer because some issues are linked to others which crosses a pagination
+        // limit.
+        let issues_to_upsert = issues_and_links_to_update.issues
+          .iter()
+          .map(|x| {
+              let issue_id = x.id as u32;
+              Issue{
+                  jira_id: issue_id,
+                  key: x.jira_issue.clone(),
+                  project_key: project_key.clone(),
+              }
+          })
+          .collect::<Vec<_>>();
+
+        update_issues_in_db(&issues_to_upsert, &mut db_conn, project_key.as_str()).await;
+
+        let mut fields_to_upsert = issues_and_links_to_update.issues
+          .iter()
+          .map(|x| {
+              let issue_id = x.id as u32;
+              let properties = x.fields
+                .iter()
+                .map(|(key, value)| KeyValueProperty {
+                    key: key.to_string(),
+                    value: value.to_string(),
+                })
+                .collect::<Vec<_>>();
+
+              IssueProperties { issue_id, properties }
+          })
+          .collect::<Vec<_>>();
+
+        fields_to_upsert.sort_by(|a, b| match (a.issue_id, b.issue_id) {
+            (a, b) if a < b => { Less }
+            (a, b) if a == b => { Equal }
+            (a, b) if a > b => { Greater }
+            (_, _) => panic!()
+        });
+
+        fill_issues_fields(&fields_to_upsert, &mut db_conn).await;
+
+        // now insert the links
+        let issue_ids = issues_to_upsert
+          .iter()
+          .map(|x| x.jira_id)
+          .collect::<Vec<_>>();
+        let issue_links = issues_and_links_to_update.links;
+        update_issue_links_in_db(issue_ids.as_slice(), &issue_links, &mut db_conn).await;
+
+
+        // now get the full data for each issue.
+        let issues_keys = issues_to_upsert
+          .iter()
+          .map(|x| x.project_key.as_str())
+          .collect::<Vec<_>>();
+
+        for key in issues_keys {
+            add_details_to_issue_in_db(&config,
+                                       key,
+                                       &mut db_conn).await
+        }
+    }
+}
+
+pub(crate) async fn update_interesting_projects_in_db(config: &Config, db_conn: &mut Pool<Sqlite>) {
+    let interesting_projects = config.interesting_projects();
+
+    let mut tasks = interesting_projects
+      .iter()
+      .map(|x| tokio::spawn(update_given_project_in_db(config.clone(), x.clone(), db_conn.clone())))
+      .collect::<JoinSet<_>>();
+
+    while let Some(res) = tasks.join_next().await {
+
+    }
 }

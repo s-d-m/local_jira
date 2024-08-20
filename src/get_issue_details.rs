@@ -61,12 +61,12 @@ async fn get_properties_from_json(
 
     let key_values = fields
         .iter()
-        .filter_map(|(key, value)| match value.as_null() {
-            Some(()) => None,
-            None => Some(KeyValueProperty {
+        .filter(|(key, value)| value.as_null().is_none())
+        .map(|(key, value)| {
+            KeyValueProperty {
                 key: key.to_string(),
                 value: value.to_string(),
-            }),
+            }
         })
         .collect::<Vec<_>>();
 
