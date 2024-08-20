@@ -29,6 +29,23 @@ struct Comment {
   last_modification: String,
 }
 
+async fn get_fields(jira_key: &str, is_custom: bool, db_conn: &Pool<Sqlite>) -> Result<Vec<Field>, sqlx::error::Error> {
+  let query_str =
+    "SELECT DISTINCT Field.human_name AS name, field_value AS value, schema
+      FROM Field
+      JOIN IssueField ON IssueField.field_id == Field.jira_id
+      JOIN Issue ON Issue.jira_id == IssueField.issue_id
+      WHERE Issue.key == ?
+        AND is_custom == ?
+      ORDER BY name";
+  let is_custom_as_int = if is_custom { 1 } else { 0 };
+  sqlx::query_as::<_, Field>(query_str)
+    .bind(jira_key)
+    .bind(is_custom_as_int)
+    .fetch_all(db_conn)
+    .await
+}
+
 
 async fn get_jira_ticket_as_markdown(jira_key: &str, db_conn: &Pool<Sqlite>) -> Result<String, String> {
   // query returns {jira_key} is satisfied by {all these other keys}
@@ -75,33 +92,14 @@ async fn get_jira_ticket_as_markdown(jira_key: &str, db_conn: &Pool<Sqlite>) -> 
     Err(e) => { return Err(e.to_string())}
   };
 
-  let field_query = |is_custom| {
-    format!("
-    SELECT DISTINCT Field.human_name AS name, field_value AS value, schema
-    FROM Field
-    JOIN IssueField ON IssueField.field_id == Field.jira_id
-    JOIN Issue ON Issue.jira_id == IssueField.issue_id
-    WHERE Issue.key == ?
-      AND is_custom == {is_custom_as_int}
-    ORDER BY name", is_custom_as_int = if is_custom { 1 } else { 0 })
-  };
 
-  let custom_field_query = field_query(true);
-  let system_field_query = field_query(false);
-
-  let custom_fields = sqlx::query_as::<_, Field>(custom_field_query.as_str())
-    .bind(jira_key)
-    .fetch_all(db_conn)
-    .await;
+  let custom_fields = get_fields(jira_key, true, db_conn).await;
   let custom_fields = custom_fields.unwrap_or_else(|x| {
     eprintln!("Error retrieving custom fields of ticket {jira_key}: {x:?}");
     vec![]
   });
 
-  let system_fields = sqlx::query_as::<_, Field>(system_field_query.as_str())
-    .bind(jira_key)
-    .fetch_all(db_conn)
-    .await;
+  let system_fields = get_fields(jira_key, false, db_conn).await;
   let system_fields = system_fields.unwrap_or_else(|x| {
     eprintln!("Error retrieving system fields of ticket {jira_key}: {x:?}");
     vec![]
