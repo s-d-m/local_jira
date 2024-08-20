@@ -77,7 +77,7 @@ async fn get_jira_ticket_as_markdown(jira_key: &str, db_conn: &Pool<Sqlite>) -> 
 
   let field_query = |is_custom| {
     format!("
-    SELECT DISTINCT Field.human_name AS name, CAST(field_value AS TEXT) AS value, schema
+    SELECT DISTINCT Field.human_name AS name, field_value AS value, schema
     FROM Field
     JOIN IssueField ON IssueField.field_id == Field.jira_id
     JOIN Issue ON Issue.jira_id == IssueField.issue_id
