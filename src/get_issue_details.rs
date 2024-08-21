@@ -303,7 +303,8 @@ async fn get_attachments_in_db_for_issue(
     let res = json
         .iter()
         .filter_map(|x| {
-            let attachment_id = x.get("id").and_then(Value::as_str).and_then(|a| {
+            let attachment_id = x.get("id")
+              .and_then(Value::as_str).and_then(|a| {
                 let val = str::parse::<i64>(a);
                 val.ok()
             });
@@ -597,16 +598,16 @@ async fn download_attachments_for_missing_content(
                     let query_res = sqlx::query(query_str)
                         .bind(v)
                         .bind(id)
-                        .fetch_all(&mut *tx)
+                        .execute(&mut *tx)
                         .await;
                     tx.commit().await.unwrap();
 
                     match query_res {
-                        Ok(e) => {
-                            eprintln!("{x} row updated ", x = e.len());
+                        Ok(_) => {
+                            eprintln!("Content set for attachment with id {id}.");
                         }
                         Err(e) => {
-                            eprintln!("Error: {e}");
+                            eprintln!("Failed to set the content for attachment with id {id}. Error: {e:?}");
                         }
                     }
                 } else {
@@ -634,16 +635,16 @@ async fn download_attachments_for_missing_content(
                 let query_res = sqlx::query(query_str)
                     .bind(uuid)
                     .bind(id)
-                    .fetch_all(&mut *tx)
+                    .execute(&mut *tx)
                     .await;
                 tx.commit().await.unwrap();
 
                 match query_res {
                     Ok(e) => {
-                        eprintln!("{x} attachments belonging to issue with id {issue_id} got its uuid set", x = e.len());
+                        eprintln!("uuid set for attachment with id {id} belonging to issue with id {issue_id}). Err: {e:?}")
                     }
                     Err(e) => {
-                        eprintln!("Error while setting the uuid field of attachments belonging to issue with id {issue_id}). Err: {e}");
+                        eprintln!("Error while setting the uuid field of attachment with id {id} belonging to issue with id {issue_id}). Err: {e}")
                     }
                 }
             }
