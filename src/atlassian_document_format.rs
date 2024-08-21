@@ -55,7 +55,11 @@ fn to_top_level(content: String) -> StringWithNodeLevel {
 }
 
 fn json_to_toplevel_string(json: &Map<String, Value>) -> StringWithNodeLevel {
-    let content = json_map_to_string(json);
+    let mut content = json_map_to_string(json);
+    content.insert_str(0, "```json\n");
+    content.push_str("\n```\n");
+
+    let content = content;
     to_top_level(content)
 }
 
@@ -517,7 +521,10 @@ fn heading_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
         1 => to_level_1(inner_content),
         2 => to_level_2(inner_content),
         3..=6 => to_level_n(level, inner_content),
-        _ => panic!("heading levels should be between 1 and 6, got {level}"),
+        _ => {
+            eprintln!("Error: heading levels should be between 1 and 6, got {level}");
+            to_level_n(7, inner_content)
+        },
     };
 
     StringWithNodeLevel {
@@ -535,7 +542,8 @@ fn mention_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
         };
     };
 
-    let text = attrs.get("text").and_then(|x| x.as_str());
+    let text = attrs.get("text")
+      .and_then(|x| x.as_str());
 
     if let Some(s) = text {
         return StringWithNodeLevel {
@@ -544,7 +552,8 @@ fn mention_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
         };
     }
 
-    let id = attrs.get("id").and_then(|x| x.as_str());
+    let id = attrs.get("id")
+      .and_then(|x| x.as_str());
 
     let content = match id {
         None => json_map_to_string(json),
@@ -851,6 +860,13 @@ fn media_single_to_string(media_single_item: &Map<String, Value>) -> StringWithN
     }
 }
 
+fn media_inline_to_string(media_inline_item: &Map<String, Value>) -> StringWithNodeLevel {
+    // on the web browser, jira UI displays media_inline_item as clickable links
+    // inside the text. Clicking the link downloads the file.
+    // Here, ... let's treat it like a media single item
+    media_single_to_string(media_inline_item)
+}
+
 fn inline_card_to_string(inline_card: &Map<String, Value>) -> StringWithNodeLevel {
     let Some(attrs) = inline_card.get("attrs") else {
         eprintln!("Invalid InlineCard found. Doesn't have an 'attrs' attribute");
@@ -964,6 +980,7 @@ fn object_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
         "inlineCard" => inline_card_to_string(json),
         "listItem" => list_item_to_string(json),
         "media" => media_to_string(json),
+        "mediaInline" => media_inline_to_string(json), // not in the documentation, but seen in the wild
         "mediaSingle" => media_single_to_string(json),
         "mediaGroup" => media_group_to_string(json),
         "mention" => mention_to_string(json),
@@ -977,7 +994,10 @@ fn object_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
         "tableRow" => table_row_to_string(json),
         "taskItem" => task_item_to_string(json),
         "text" => text_to_string(json),
-        _ => json_to_toplevel_string(json),
+        _ => {
+            eprintln!("Unknown type element '{type_elt}' in atlassian document format.");
+            json_to_toplevel_string(json)
+        }
     }
 }
 
