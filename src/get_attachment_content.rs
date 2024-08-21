@@ -19,7 +19,10 @@ fn is_uuid(candidate: &str) -> bool {
         return false;
     }
 
-    let dummy = candidate.split('-').collect::<Vec<_>>();
+    let dummy = candidate
+      .split('-')
+      .collect::<Vec<_>>();
+
     if dummy.len() != 5 {
         return false;
     }
@@ -35,12 +38,15 @@ fn is_uuid(candidate: &str) -> bool {
     if dummy[3].len() != 4 {
         return false;
     }
-    if dummy[4].len() != 11 {
+    if dummy[4].len() != 12 {
         return false;
     }
 
     let is_str_hexa = |s: &str| -> bool { s.chars().all(|c| c.is_ascii_hexdigit())};
-    let res = dummy.into_iter().all(is_str_hexa);
+    let res = dummy
+      .into_iter()
+      .all(is_str_hexa);
+    dbg!(res);
     res
 }
 
@@ -122,8 +128,6 @@ async fn download_url(attachment_id: i64, config: &Config, cookie: &str) -> file
         }
     };
 
-    eprintln!("{e:?}", e=response.headers());
-
     if !response.status().is_success() {
         eprintln!("Error while downloading content for attachment with id {attachment_id}. Returned status code is {x}",
         x=response.status().to_string());
@@ -131,17 +135,18 @@ async fn download_url(attachment_id: i64, config: &Config, cookie: &str) -> file
     }
 
     let path = response.url().path();
-    let splitted_path = path.split('/').collect::<Vec<_>>();
+    let splitted_path = path
+      .split('/')
+      .collect::<Vec<_>>();
     let uuid = if splitted_path.len() >= 3 {
         if splitted_path[0].is_empty() && splitted_path[1] == "file" && is_uuid(splitted_path[2]) {
-            Some(splitted_path[2])
+            Some(splitted_path[2].to_string())
         } else {
             None
         }
     } else {
         None
     };
-    let uuid= uuid.and_then(|x| Some(x.to_string()));
 
     let bytes = match response.bytes().await {
         Ok(v) => {Some(v.to_vec())}
