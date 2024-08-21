@@ -28,10 +28,7 @@ async fn get_projects_from_database(db_conn: &Pool<Sqlite>) -> Vec<Project> {
     match rows {
         Ok(data) => data,
         Err(e) => {
-            eprintln!(
-                "Error occurred while trying to get projects from local database: {a}",
-                a = e.to_string()
-            );
+            eprintln!("Error occurred while trying to get projects from local database: {e:?}");
             Vec::new()
         }
     }
@@ -203,7 +200,7 @@ fn get_issue_types_per_project(json_data: &Value) -> Vec<IssueTypePerProject> {
         }
       };
       let Some(issue_types) = x.get("issueTypes") else {
-        eprintln!("Invalid data found while extracting issue types per project. json object doesn't have a 'issueTypes' key");
+        eprintln!("Invalid data found while extracting issue types per project. json object doesn't have a 'issueTypes' key. Data is {x:?}");
         return None;
       };
       let Some(issue_types) = issue_types.as_array() else {
