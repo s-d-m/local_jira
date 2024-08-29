@@ -828,3 +828,21 @@ and if so return it directly. This is in essence a cache.
 
 ### Difficulty
 Medium
+
+
+## Allow user SQL requests to get data from the database
+### Problem
+Advanced users might want to extract data from the database using "advanced" queries. For
+example in order to filter tickets and retrieve only the ones marked as open, or where the
+description contains a specific keyword.
+
+### Solution
+The GUI can provide a way to retrieve a list of issue keys and only show these
+in the main UI. There can also be a widget displaying the result of arbitrary
+sql requests. If using Qt for the GUI, see [the SQL Browser](https://doc.qt.io/qt-6/qtsql-sqlbrowser-example.html)
+example to see how to do it.
+
+Careful! There should be a mechanism to prevent writes access to the database.
+Not that critical considering that if a user messes up the SQL request, it is
+always possible to delete the database and restart the first synchronisation
+process.     
