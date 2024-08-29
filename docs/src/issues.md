@@ -504,23 +504,6 @@ or similar, and attach context to error messages.
 medium
 
 
-
-## Check about attachment in comments
-### Problem
-Jira tickets can contain attachments. Those are files that user add to a ticket, usually to provide
-data related to an issue. `Local_jira` does support fetching such attachments when added directly
-to a ticket.
-
-I strongly believe a user can also add attachment, to a comment, belonging to a ticket. Handling
-attachments added to a ticket has not been tested.
-
-### Solution
-Add an attachment to a comment and check if `Local_jira` handles that already. If not, add support for it.
-
-### Difficulty
-Medium-Hard
-
-
 ## Limit size of downloaded attached files
 ### Problem
 `Local_jira` automatically retrieves attachments, and saves them locally. However it doesn't put any
