@@ -39,6 +39,7 @@ mod manage_issuetype_table;
 mod manage_project_table;
 mod server;
 mod utils;
+mod srv_fetch_ticket;
 
 async fn init_db(db_path: &std::path::PathBuf) -> Result<Pool<Sqlite>, String> {
     let path = db_path.to_str();
@@ -60,7 +61,10 @@ async fn init_db(db_path: &std::path::PathBuf) -> Result<Pool<Sqlite>, String> {
 
     let db = SqlitePool::connect(path).await.unwrap();
     let create_schema = include_str!("create_schema.sql");
-    let result = sqlx::query(create_schema).execute(&db).await.unwrap();
+    let result = sqlx::query(create_schema)
+      .execute(&db)
+      .await
+      .unwrap();
     eprintln!("Create user table result: {:?}", result);
     Ok(db)
 }
@@ -118,12 +122,10 @@ pub async fn main() {
             update_project_list_in_db(&config, &mut db_project_list_handle)
         );
     }
-
-//    initialise_interesting_projects_in_db(&config, &mut db).await;
-eprintln!("START UPDATING INTERESTING PROJECT");
-    update_interesting_projects_in_db(&config, &mut db).await;
-eprintln!("STOP UPDATING INTERESTING PROJECT");
-
-
+//
+//     initialise_interesting_projects_in_db(&config, &mut db).await;
+// eprintln!("START UPDATING INTERESTING PROJECT");
+// //    update_interesting_projects_in_db(&config, &mut db).await;
+// eprintln!("STOP UPDATING INTERESTING PROJECT");
     server::server_request_loop(&db).await;
 }

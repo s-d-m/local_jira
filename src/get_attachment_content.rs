@@ -14,7 +14,7 @@ struct cookie_expiration {
     expiry: Option<i64>,
 }
 
-fn is_uuid(candidate: &str) -> bool {
+pub(crate) fn is_uuid(candidate: &str) -> bool {
     if candidate.len() != 36 {
         return false;
     }

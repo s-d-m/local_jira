@@ -1,233 +1,349 @@
-use std::collections::HashMap;
-use std::io;
-use serde_json::json;
+use std::{io, sync};
+use std::io::{Read, read_to_string};
+use std::ptr::read;
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError};
+use std::time::Duration;
 
-use sqlx::{FromRow, Pool, Sqlite};
-use sqlx::types::JsonValue;
+use sqlx::{Pool, Sqlite};
+use tokio::task::JoinSet;
+use tokio::time::sleep;
+use crate::srv_fetch_ticket::serve_fetch_ticket_request;
 
-use crate::atlassian_document_format::root_elt_doc_to_string;
 
-#[derive(FromRow, Debug)]
-struct Relations {
-  link_name: String,
-  other_issue_key: String,
-  other_issue_summary: Option<String>,
+#[derive(Eq, PartialEq)]
+enum RequestKind {
+  Fetch_Ticket(String /* issue key */),
+  Fetch_Ticket_List,
+  Fetch_Ticket_Key_Value_Fields(String /* issue key */),
+  Fetch_Attachment_List_For_Ticket(String /* issue key */),
+  Fetch_Attachment_Content(String /* attachment uuid */),
+  Synchronise_Ticket(String /* issue key */),
+  Synchronise_Updated,
+  Synchronise_All,
+  Exit_Server_After_Requests,
+  Exit_Server_Now,
 }
 
-#[derive(FromRow, Debug)]
-struct Field {
-  name: String,
-  value: JsonValue,
-  schema: JsonValue,
+struct Request {
+  request_id: String,
+  request_kind: RequestKind,
 }
 
-#[derive(FromRow, Debug)]
-struct Comment {
-  data: JsonValue,
-  author: String,
-  creation_time: String,
-  last_modification: String,
+fn is_valid_request_id(candidate: &str) -> bool {
+  if candidate.is_empty() {
+    false
+  } else {
+    let res = candidate
+      .chars()
+      .all(|x| x.is_ascii_alphanumeric() || (x == '-'));
+    res
+  }
 }
 
-async fn get_fields(jira_key: &str, is_custom: bool, db_conn: &Pool<Sqlite>) -> Result<Vec<Field>, sqlx::error::Error> {
-  let query_str =
-    "SELECT DISTINCT Field.human_name AS name, field_value AS value, schema
-      FROM Field
-      JOIN IssueField ON IssueField.field_id == Field.jira_id
-      JOIN Issue ON Issue.jira_id == IssueField.issue_id
-      WHERE Issue.key == ?
-        AND is_custom == ?
-      ORDER BY name";
-  let is_custom_as_int = if is_custom { 1 } else { 0 };
-  sqlx::query_as::<_, Field>(query_str)
-    .bind(jira_key)
-    .bind(is_custom_as_int)
-    .fetch_all(db_conn)
-    .await
-}
+fn is_valid_issue_key(candidate: &str) -> bool {
+  // checks that candidate looks like PROJ-123
 
-
-async fn get_jira_ticket_as_markdown(jira_key: &str, db_conn: &Pool<Sqlite>) -> Result<String, String> {
-  // query returns {jira_key} is satisfied by {all these other keys}
-  let inward_relations_query = "
-    SELECT DISTINCT IssueLinkType.inward_name AS link_name, Issue.key as other_issue_key, IssueField.field_value AS other_issue_summary
-    FROM Issue
-    JOIN IssueLink ON IssueLink.inward_issue_id = Issue.jira_id
-    JOIN IssueLinkType ON IssueLinkType.jira_id = IssueLink.link_type_id
-    JOIN IssueField ON IssueField.issue_id = IssueLink.inward_issue_id
-    WHERE IssueLink.outward_issue_id =  (SELECT jira_id FROM Issue WHERE Issue.key == ?)
-    AND IssueField.field_id == 'summary'
-    ORDER BY link_name ASC,
-             Issue.jira_id ASC;";
-
-  // query return {jira_key} satisfies {all there other keys}
-  let outward_relations_query = "
-    SELECT DISTINCT IssueLinkType.outward_name AS link_name, Issue.key AS other_issue_key, IssueField.field_value AS other_issue_summary
-    FROM Issue
-    JOIN IssueLink ON IssueLink.outward_issue_id = Issue.jira_id
-    JOIN IssueLinkType ON IssueLinkType.jira_id = IssueLink.link_type_id
-    JOIN IssueField ON IssueField.issue_id = IssueLink.outward_issue_id
-    WHERE IssueLink.inward_issue_id =  (SELECT jira_id FROM Issue WHERE Issue.key == ?)
-    AND IssueField.field_id = 'summary'
-    ORDER BY link_name ASC,
-             Issue.jira_id ASC;";
-
-  let outward_links = sqlx::query_as::<_, Relations>(outward_relations_query)
-    .bind(jira_key)
-    .fetch_all(db_conn)
-    .await;
-
-  let inward_links = sqlx::query_as::<_, Relations>(inward_relations_query)
-    .bind(jira_key)
-    .fetch_all(db_conn)
-    .await;
-
-  let outward_links = match outward_links {
-    Ok(e) => {e}
-    Err(e) => { return Err(e.to_string())}
-  };
-
-  let inward_links = match inward_links {
-    Ok(e) => {e}
-    Err(e) => { return Err(e.to_string())}
-  };
-
-
-  let custom_fields = get_fields(jira_key, true, db_conn).await;
-  let custom_fields = custom_fields.unwrap_or_else(|x| {
-    eprintln!("Error retrieving custom fields of ticket {jira_key}: {x:?}");
-    vec![]
-  });
-
-  let system_fields = get_fields(jira_key, false, db_conn).await;
-  let system_fields = system_fields.unwrap_or_else(|x| {
-    eprintln!("Error retrieving system fields of ticket {jira_key}: {x:?}");
-    vec![]
-  });
-  let hashed_system_fields = system_fields
-    .iter()
-    .map(|x| (x.name.as_str(), x))
-    .collect::<HashMap<_, &Field>>();
-
-  //dbg!(&custom_fields);
-
-  let summary = system_fields
-    .iter()
-    .find(|x| x.name == "Summary")
-    .and_then(|x| x.value.as_str())
-    .unwrap_or_default();
-
-  let description = hashed_system_fields.get("Description")
-    .and_then(|x| Some(root_elt_doc_to_string(&x.value)))
-    .unwrap_or_default();
-
-
-  let links_str = outward_links
-    .iter()
-    .chain(&inward_links)
-    .map(|x| {
-      let relation = x.link_name.as_str();
-      let other_key = x.other_issue_key.as_str();
-      let summary = match &x.other_issue_summary {
-        None => { "" }
-        Some(a) => { a.as_str() }
-      };
-      format!("{relation} {other_key}: {summary}")
-    })
-    .reduce(|a, b| { format!("{a}\n{b}")})
-    .unwrap_or_default();
-
-  let comments_query_str =
-    "SELECT content_data as data, displayName as author, creation_time, last_modification_time as last_modification
-     FROM Comment
-     JOIN People
-       ON People.accountId = Comment.author
-     Where issue_id = (SELECT jira_id from Issue WHERE key = ?)
-     ORDER BY position_in_array ASC";
-
-  let comments = sqlx::query_as::<_, Comment>(comments_query_str)
-    .bind(jira_key)
-    .fetch_all(db_conn)
-    .await;
-  let comments = comments.unwrap_or_else(|x| {
-    eprintln!("Error retrieving custom fields of ticket {jira_key}: {x:?}");
-    vec![]
-  });
-
-  let comments = comments
-    .iter()
-    .map(|x| {
-      let author = &x.author;
-      let creation = &x.creation_time;
-      let last_modification = &x.last_modification;
-      let data = root_elt_doc_to_string(&x.data);
-      format!("comment from: {author}
-last edited on: {last_modification}
-{data}")
-    })
-    .reduce(|a, b| format!("{a}\n\n{b}"))
-    .unwrap_or_default();
-
-  let res = format!(
-    "{jira_key}: {summary}
-=========
-
-Description:
-----
-{description}
-
-Links:
-----
-{links_str}
-
-Comments:
------
-{comments}
-");
-  Ok(res)
-}
-
-
-async fn serve_request(request: &str, db_conn: &Pool<Sqlite>) -> Result<String, String> {
-  let valid_request_format = "<token><space>GET_JIRA<space><jira_id/key><space>FORMAT<space><json|html|markdown>";
-
-  let split_request = request.split_whitespace().collect::<Vec<_>>();
-  if (split_request.len() != 5) || (split_request[1] != "GET_JIRA") || (split_request[3] != "FORMAT")
-    || ((split_request[4] != "json") && (split_request[4] != "html") && (split_request[4] != "markdown")) {
-    return Err(format!("invalid request. Got [{request}] expecting something like [{valid_request_format}]"));
+  let chunks = candidate
+    .split('-')
+    .collect::<Vec<_>>();
+  if chunks.len() != 2 {
+    return false;
   }
 
-  let token = split_request[0];
-  let jira_id = split_request[2];
-  let format = split_request[4];
+  // ensures first part is all uppercase
+  let is_likely_jira_proj = chunks[0]
+    .chars()
+    .all(|x| x.is_ascii_uppercase());
 
-  let res = get_jira_ticket_as_markdown(jira_id, &db_conn).await;
-  return Ok(format!("Ok: token=[{token}] jira_id=[{jira_id}] format=[{format}], res=[{res:?}]"));
+  // ensures first part is all digits
+  let is_likely_ticket_number = chunks[1]
+    .chars()
+    .all(|x| x.is_ascii_digit());
+
+  is_likely_jira_proj && is_likely_ticket_number
+}
+
+impl Request {
+  fn from(line: &str) -> Result<Request, String> {
+    let chunks = line
+      .split(' ')
+      .collect::<Vec<_>>();
+
+    let nr_chunks = chunks.len();
+    if nr_chunks != 3 {
+      return Err(String::from("invalid request. Must contain three space separated chunks (last chunk potentially being the empty string)"));
+    };
+
+    let candidate_request_id = chunks[0];
+    let command = chunks[1];
+    let command_parameter = chunks[2];
+
+    if !is_valid_request_id(candidate_request_id) {
+      return Err(String::from("Invalid request. Request id should only contain ascii alphanum characters or dashed"));
+    }
+
+    let request_id = candidate_request_id.to_string();
+    match command {
+      "FETCH_TICKET" => {
+        if !command_parameter.is_empty() {
+          Ok(Request{
+            request_id,
+            request_kind: RequestKind::Fetch_Ticket(command_parameter.to_string()),
+          })
+        } else {
+          Err(String::from("Invalid request. Fetch_Ticket takes parameters."))
+        }
+      }
+      "FETCH_TICKET_LIST" => {
+        if command_parameter.is_empty() {
+          Ok(Request {
+            request_id,
+            request_kind: RequestKind::Fetch_Ticket_List,
+          })
+        } else {
+          Err(String::from("Invalid request. Fetch_Ticket_List doesn't take parameter"))
+        }
+      }
+      "FETCH_TICKET_KEY_VALUE_FIELDS" => {
+        if !command_parameter.is_empty() {
+          Ok(Request{
+            request_id,
+            request_kind: RequestKind::Fetch_Ticket_Key_Value_Fields(command_parameter.to_string()),
+          })
+        } else {
+          Err(String::from("Invalid request. Fetch_Ticket_Key_Value_Fields takes a jira issue key as parameter. Something like PROJ-123"))
+        }
+      },
+      "FETCH_ATTACHMENT_LIST_FOR_TICKET" => {
+        if !command_parameter.is_empty() {
+          Ok(Request{
+            request_id,
+            request_kind: RequestKind::Fetch_Attachment_List_For_Ticket(command_parameter.to_string()),
+          })
+        } else {
+          Err(String::from("Invalid request. Fetch_Attachment_List_For_Ticket takes a jira issue key as parameter. Something like PROJ-123"))
+        }
+      }
+      "FETCH_ATTACHMENT_CONTENT" => {
+        if !command_parameter.is_empty() {
+          Ok(Request{
+            request_id,
+            request_kind: RequestKind::Fetch_Attachment_Content(command_parameter.to_string()),
+          })
+        } else {
+          Err(String::from("Invalid request. Fetch_Attachment_Content takes a uuid as parameter. Something like PROJ-123"))
+        }
+      }
+      "SYNCHRONISE_TICKET" => {
+        if !command_parameter.is_empty() {
+          Ok(Request{
+            request_id,
+            request_kind: RequestKind::Synchronise_Ticket(command_parameter.to_string()),
+          })
+        } else {
+          Err(String::from("Invalid request. Synchronise_Ticket takes a jira issue key as parameter. Something like PROJ-123"))
+        }
+      }
+      "SYNCHRONISE_UPDATED" => {
+        if command_parameter.is_empty() {
+          Ok(Request {
+            request_id,
+            request_kind: RequestKind::Synchronise_Updated,
+          })
+        } else {
+          Err(String::from("Invalid request. Synchronise_Updated doesn't take parameter"))
+        }
+      }
+      "SYNCHRONISE_ALL" => {
+        if command_parameter.is_empty() {
+          Ok(Request {
+            request_id,
+            request_kind: RequestKind::Synchronise_All,
+          })
+        } else {
+          Err(String::from("Invalid request. Synchronise_All doesn't take parameter"))
+        }
+      }
+      "EXIT_SERVER_AFTER_REQUESTS" => {
+        if command_parameter.is_empty() {
+          Ok(Request {
+            request_id,
+            request_kind: RequestKind::Exit_Server_After_Requests,
+          })
+        } else {
+          Err(String::from("Invalid request. Exit_Server_After_Requests doesn't take parameter"))
+        }
+      }
+      "EXIT_SERVER_NOW" => {
+        if command_parameter.is_empty() {
+          Ok(Request {
+            request_id,
+            request_kind: RequestKind::Exit_Server_Now,
+          })
+        } else {
+          Err(String::from("Invalid request. Exit_Server_Now doesn't take parameter"))
+        }
+      }
+      _ => Err(String::from("invalid request, unknown command"))
+
+    }
+  }
+}
+
+pub(crate) struct Reply(pub String);
+
+async fn serve_request(request: Request, out_for_replies: tokio::sync::mpsc::Sender<Reply>, db_conn: Pool<Sqlite>) {
+  let Request { request_id, request_kind: request } = request;
+  let request_id = request_id.as_str();
+  match request {
+    RequestKind::Fetch_Ticket(params) => { serve_fetch_ticket_request(request_id, params.as_str(), out_for_replies, &db_conn).await }
+    RequestKind::Fetch_Ticket_List => {}
+    RequestKind::Fetch_Ticket_Key_Value_Fields(_) => {}
+    RequestKind::Fetch_Attachment_List_For_Ticket(_) => {}
+    RequestKind::Fetch_Attachment_Content(_) => {}
+    RequestKind::Synchronise_Ticket(_) => {}
+    RequestKind::Synchronise_Updated => {}
+    RequestKind::Synchronise_All => {}
+    RequestKind::Exit_Server_After_Requests => {}
+    RequestKind::Exit_Server_Now => { return }
+  }
+}
+
+async fn process_events(mut events_to_process: tokio::sync::mpsc::Receiver<Request>,
+                        out_for_replies: tokio::sync::mpsc::Sender<Reply>,
+                        db_conn: Pool<Sqlite>) {
+  let mut exit_requested = false;
+  let mut exit_immediately_requested = false;
+
+  let mut handles = JoinSet::new();
+  let mut id_of_exit_request = String::new();
+  let mut id_of_exit_immediate_request = String::new();
+
+  while !exit_requested {
+    let event = events_to_process.try_recv();
+    match event {
+      Ok(request) => {
+        match request.request_kind {
+          RequestKind::Exit_Server_After_Requests => {
+            exit_requested = true;
+            let _ = out_for_replies.try_send(Reply(format!("{id} ACK\n", id = request.request_id)));
+            id_of_exit_request = request.request_id;
+          }
+          RequestKind::Exit_Server_Now => {
+            exit_requested = true;
+            exit_immediately_requested = true;
+            let _ = out_for_replies.try_send(Reply(format!("{id} ACK\n", id = request.request_id)));
+            id_of_exit_immediate_request = request.request_id;
+          }
+          _ => {
+            handles.spawn(serve_request(request, out_for_replies.clone(), db_conn.clone()));
+          }
+        }
+      }
+      Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+      }
+      Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+        exit_requested = true;
+      }
+    }
+
+    // remove handles of finished task from set
+    while let Some(Ok(_)) = handles.try_join_next() {
+    }
+  }
+
+  while (!exit_immediately_requested) && (!handles.is_empty()) {
+    // remove handles of finished task from set
+    while let Some(Ok(_)) = handles.try_join_next() {
+    }
+
+    let event = events_to_process.try_recv();
+    match event {
+      Ok(Request { request_id: id, request_kind: RequestKind::Exit_Server_Now }) => {
+        exit_immediately_requested = true;
+        let _ = out_for_replies.try_send(Reply(format!("{id} ACK\n")));
+        id_of_exit_immediate_request = id;
+      },
+      Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
+        if !handles.is_empty() {
+          eprintln!("There are still events to be processed apparently");
+          tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+      }
+      Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+        exit_immediately_requested = true;
+      },
+      _ => {}
+    }
+  }
+
+  drop(events_to_process);
+
+
+  handles.abort_all();
+  if !id_of_exit_request.is_empty() {
+    let _ = out_for_replies.try_send(Reply(format!("{id_of_exit_request} FINISHED\n")));
+  }
+  if !id_of_exit_immediate_request.is_empty() {
+    let _ = out_for_replies.try_send(Reply(format!("{id_of_exit_immediate_request} FINISHED\n")));
+  }
+
+  drop(out_for_replies);
+}
+
+async fn stdin_to_request(request_queue: tokio::sync::mpsc::Sender<Request>) {
+  let mut stdin_input: String = Default::default();
+
+  while !request_queue.is_closed() {
+    // todo: get rid of blocking read as otherwise the shutdown has to wait for the user to
+    // enter a newline
+
+    stdin_input.clear();
+      let _ = io::stdin().read_line(&mut stdin_input);
+      let without_suffix = stdin_input.strip_suffix('\n');
+      let without_suffix = match without_suffix {
+        None => { stdin_input.as_str() }
+        Some(data) => {data}
+      };
+
+      let request = Request::from(without_suffix);
+      match request {
+        Ok(request) => {
+          let _ = request_queue.send(request).await;
+        }
+        Err(e) => {
+          eprintln!("Failed to get a request out of [{without_suffix}]: Err: {e}")
+        }
+      }
+    }
+
 }
 
 pub(crate)
 async fn server_request_loop(db_conn: &Pool<Sqlite>) {
   eprintln!("Ready to accept requests");
-  let mut line: String = Default::default();
-  'main_loop: loop {
-    line.clear();
-    match io::stdin().read_line(&mut line) {
-      Ok(_) => {
-        let line = line.trim_end();
-        eprintln!("Received request [{line}]");
-        match line {
-          "quit" | "exit" => { break 'main_loop; }
-          _ => {
-            let res = serve_request(line, db_conn).await;
-            let res = match res {
-              Ok(e) => { format!("OK: {e}") }
-              Err(e) => { format!("ERR:{e}") }
-            };
-            println!("{res}")
-          }
-        }
-      }
-      Err(e) => { eprintln!("Failed to read request. Err: {e:?}") }
+
+  let (request_to_processor_sender, request_receiver) = tokio::sync::mpsc::channel(1000);
+  let (reply_sender, mut reply_receiver) = tokio::sync::mpsc::channel(1000);
+
+  let event_processor_handle = tokio::spawn(process_events(request_receiver, reply_sender, db_conn.clone()));
+
+  let (request_on_stdin_sender, mut request_on_stdin_receiver) = tokio::sync::mpsc::channel(1000);
+  let stdin_to_req_handle = tokio::spawn(stdin_to_request(request_on_stdin_sender));
+
+  while !reply_receiver.is_closed() {
+    while let Ok(req) = request_on_stdin_receiver.try_recv() {
+      let _ = request_to_processor_sender.try_send(req);
     }
+
+    while let Ok(reply) = reply_receiver.try_recv() {
+      println!("{}", reply.0)
+    }
+    tokio::time::sleep(Duration::from_millis(50)).await;
   }
+
+  request_on_stdin_receiver.close();
+  let _ = event_processor_handle.abort();
+  let _ = stdin_to_req_handle.abort();
 }
