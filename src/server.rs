@@ -292,7 +292,7 @@ async fn process_events(mut events_to_process: tokio::sync::mpsc::Receiver<Reque
   drop(out_for_replies);
 }
 
-async fn stdin_to_request(request_queue: tokio::sync::mpsc::Sender<Request>) {
+fn stdin_to_request(request_queue: tokio::sync::mpsc::Sender<Request>) {
   let mut stdin_input: String = Default::default();
 
   while !request_queue.is_closed() {
@@ -310,7 +310,7 @@ async fn stdin_to_request(request_queue: tokio::sync::mpsc::Sender<Request>) {
       let request = Request::from(without_suffix);
       match request {
         Ok(request) => {
-          let _ = request_queue.send(request).await;
+          let _ = request_queue.blocking_send(request);
         }
         Err(e) => {
           eprintln!("Failed to get a request out of [{without_suffix}]: Err: {e}")
@@ -330,7 +330,9 @@ async fn server_request_loop(db_conn: &Pool<Sqlite>) {
   let event_processor_handle = tokio::spawn(process_events(request_receiver, reply_sender, db_conn.clone()));
 
   let (request_on_stdin_sender, mut request_on_stdin_receiver) = tokio::sync::mpsc::channel(1000);
-  let stdin_to_req_handle = tokio::spawn(stdin_to_request(request_on_stdin_sender));
+  let stdin_to_req_handle = std::thread::spawn(move || {
+    stdin_to_request(request_on_stdin_sender)
+  });
 
   while !reply_receiver.is_closed() {
     while let Ok(req) = request_on_stdin_receiver.try_recv() {
@@ -345,5 +347,5 @@ async fn server_request_loop(db_conn: &Pool<Sqlite>) {
 
   request_on_stdin_receiver.close();
   let _ = event_processor_handle.abort();
-  let _ = stdin_to_req_handle.abort();
+  drop(stdin_to_req_handle);
 }
