@@ -1,4 +1,5 @@
 use std::{io, sync};
+use std::fmt::format;
 use std::io::{Read, read_to_string};
 use std::ptr::read;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError};
@@ -70,13 +71,13 @@ impl Request {
       .collect::<Vec<_>>();
 
     let nr_chunks = chunks.len();
-    if nr_chunks != 3 {
+    if (nr_chunks != 3) && (nr_chunks != 2) {
       return Err(String::from("invalid request. Must contain three space separated chunks (last chunk potentially being the empty string)"));
     };
 
     let candidate_request_id = chunks[0];
     let command = chunks[1];
-    let command_parameter = chunks[2];
+    let command_parameter = if nr_chunks == 2 { None } else { Some(chunks[2]) };
 
     if !is_valid_request_id(candidate_request_id) {
       return Err(String::from("Invalid request. Request id should only contain ascii alphanum characters or dashed"));
@@ -85,103 +86,133 @@ impl Request {
     let request_id = candidate_request_id.to_string();
     match command {
       "FETCH_TICKET" => {
-        if !command_parameter.is_empty() {
-          Ok(Request{
-            request_id,
-            request_kind: RequestKind::Fetch_Ticket(command_parameter.to_string()),
-          })
-        } else {
-          Err(String::from("Invalid request. Fetch_Ticket takes parameters."))
+        match command_parameter {
+          None => {
+            Err(String::from("Invalid request. Fetch_Ticket takes parameters."))
+          },
+          Some(command_parameter) => {
+            Ok(Request{
+              request_id,
+              request_kind: RequestKind::Fetch_Ticket(command_parameter.to_string()),
+            })
+          }
         }
-      }
+      },
       "FETCH_TICKET_LIST" => {
-        if command_parameter.is_empty() {
-          Ok(Request {
-            request_id,
-            request_kind: RequestKind::Fetch_Ticket_List,
-          })
-        } else {
-          Err(String::from("Invalid request. Fetch_Ticket_List doesn't take parameter"))
+        match command_parameter {
+          None => {
+            Ok(Request {
+              request_id,
+              request_kind: RequestKind::Fetch_Ticket_List,
+            })
+          },
+          Some(command_parameter) => {
+            Err(format!("Invalid request. Fetch_Ticket_List doesn't take parameter, but given [{command_parameter}]"))
+          }
         }
-      }
+      },
       "FETCH_TICKET_KEY_VALUE_FIELDS" => {
-        if !command_parameter.is_empty() {
-          Ok(Request{
-            request_id,
-            request_kind: RequestKind::Fetch_Ticket_Key_Value_Fields(command_parameter.to_string()),
-          })
-        } else {
-          Err(String::from("Invalid request. Fetch_Ticket_Key_Value_Fields takes a jira issue key as parameter. Something like PROJ-123"))
+        match command_parameter {
+          None => {
+            Err(String::from("Invalid request. Fetch_Ticket_Key_Value_Fields takes a jira issue key as parameter. Something like PROJ-123"))
+          },
+          Some(command_parameter) => {
+            Ok(Request{
+              request_id,
+              request_kind: RequestKind::Fetch_Ticket_Key_Value_Fields(command_parameter.to_string()),
+            })
+          }
         }
       },
       "FETCH_ATTACHMENT_LIST_FOR_TICKET" => {
-        if !command_parameter.is_empty() {
-          Ok(Request{
-            request_id,
-            request_kind: RequestKind::Fetch_Attachment_List_For_Ticket(command_parameter.to_string()),
-          })
-        } else {
-          Err(String::from("Invalid request. Fetch_Attachment_List_For_Ticket takes a jira issue key as parameter. Something like PROJ-123"))
+        match command_parameter {
+          None => {
+            Err(String::from("Invalid request. Fetch_Attachment_List_For_Ticket takes a jira issue key as parameter. Something like PROJ-123"))
+          }
+          Some(command_parameter) => {
+            Ok(Request{
+              request_id,
+              request_kind: RequestKind::Fetch_Attachment_List_For_Ticket(command_parameter.to_string()),
+            })
+          }
         }
       }
       "FETCH_ATTACHMENT_CONTENT" => {
-        if !command_parameter.is_empty() {
-          Ok(Request{
-            request_id,
-            request_kind: RequestKind::Fetch_Attachment_Content(command_parameter.to_string()),
-          })
-        } else {
-          Err(String::from("Invalid request. Fetch_Attachment_Content takes a uuid as parameter. Something like PROJ-123"))
+        match command_parameter {
+          None => {
+            Err(String::from("Invalid request. Fetch_Attachment_Content takes a uuid as parameter. Something like PROJ-123"))
+          },
+          Some(command_parameter) => {
+            Ok(Request{
+              request_id,
+              request_kind: RequestKind::Fetch_Attachment_Content(command_parameter.to_string()),
+            })
+          }
         }
       }
       "SYNCHRONISE_TICKET" => {
-        if !command_parameter.is_empty() {
-          Ok(Request{
-            request_id,
-            request_kind: RequestKind::Synchronise_Ticket(command_parameter.to_string()),
-          })
-        } else {
-          Err(String::from("Invalid request. Synchronise_Ticket takes a jira issue key as parameter. Something like PROJ-123"))
+        match command_parameter {
+          None => {
+            Err(String::from("Invalid request. Synchronise_Ticket takes a jira issue key as parameter. Something like PROJ-123"))
+          },
+          Some(command_parameter) => {
+            Ok(Request{
+              request_id,
+              request_kind: RequestKind::Synchronise_Ticket(command_parameter.to_string()),
+            })
+          }
         }
       }
       "SYNCHRONISE_UPDATED" => {
-        if command_parameter.is_empty() {
-          Ok(Request {
-            request_id,
-            request_kind: RequestKind::Synchronise_Updated,
-          })
-        } else {
-          Err(String::from("Invalid request. Synchronise_Updated doesn't take parameter"))
+        match command_parameter {
+          None => {
+            Ok(Request {
+              request_id,
+              request_kind: RequestKind::Synchronise_Updated,
+            })
+          },
+          Some(command_parameter) => {
+            Err(format!("Invalid request. Synchronise_Updated doesn't take parameter. Got [{command_parameter}]"))
+          }
         }
       }
       "SYNCHRONISE_ALL" => {
-        if command_parameter.is_empty() {
-          Ok(Request {
-            request_id,
-            request_kind: RequestKind::Synchronise_All,
-          })
-        } else {
-          Err(String::from("Invalid request. Synchronise_All doesn't take parameter"))
+        match command_parameter {
+          None => {
+            Ok(Request {
+              request_id,
+              request_kind: RequestKind::Synchronise_All,
+            })
+          },
+          Some(command_parameter) => {
+            Err(format!("Invalid request. Synchronise_All doesn't take parameter. Got [{command_parameter}]"))
+          }
         }
       }
       "EXIT_SERVER_AFTER_REQUESTS" => {
-        if command_parameter.is_empty() {
-          Ok(Request {
-            request_id,
-            request_kind: RequestKind::Exit_Server_After_Requests,
-          })
-        } else {
-          Err(String::from("Invalid request. Exit_Server_After_Requests doesn't take parameter"))
+        match command_parameter {
+          None => {
+            Ok(Request {
+              request_id,
+              request_kind: RequestKind::Exit_Server_After_Requests,
+            })
+          },
+          Some(command_parameter) => {
+            Err(format!("Invalid request. Exit_Server_After_Requests doesn't take parameter. Got [{command_parameter}]"))
+          }
         }
       }
       "EXIT_SERVER_NOW" => {
-        if command_parameter.is_empty() {
-          Ok(Request {
-            request_id,
-            request_kind: RequestKind::Exit_Server_Now,
-          })
-        } else {
-          Err(String::from("Invalid request. Exit_Server_Now doesn't take parameter"))
+        match command_parameter {
+          None => {
+            Ok(Request {
+              request_id,
+              request_kind: RequestKind::Exit_Server_Now,
+            })
+          },
+          Some(command_parameter) => {
+            Err(format!("Invalid request. Exit_Server_Now doesn't take parameter. Got [{command_parameter}]"))
+          }
         }
       }
       _ => Err(String::from("invalid request, unknown command"))

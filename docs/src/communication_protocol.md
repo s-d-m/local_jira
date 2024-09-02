@@ -16,7 +16,7 @@ Messages are written using ascii-only strings, and separated by newlines. In oth
 waiting and reading a message is as simple as calling the C++ `std::getline` function.
 This is obviously a poor communication protocol since there is a very easy way to cause
 a denial of service by forcing the server to allocate more and more memory. Simply keep
-writing bytes in its stdin, but never write a newline character
+writing bytes in its stdin, but never write a newline character.
 
 ## Request format
 
@@ -24,13 +24,25 @@ One request can trigger one or more replies.
 
 Each request has a simple format:
 ```
-<token><space><request><space>[<request,parameters,separated,by,commas>]<newline>
+<token><space><request>[<space><request,parameters,separated,by,commas>]<newline>
 ```
 
-It is of importance that the line always contains three chunks separated by a space character.
-The last chunk might be an empty string, that is if the request do not take parameter, the
-line will finish by `<space><newline>`. This is due to simplify parsing as much as possible
-and do one length check only.
+Valid requests always contain two or three chunks separated by a space character.
+Some request takes parameters and some don't.
+
+For the case of request taking no parameters, the following form shall be used:
+`<token><space><request><newline>`. It is to be noted that passing an empty parameter to a
+request taking no parameter must be rejected by the server. In other words, using
+`<token><space><request><space><newline>` is an error and no request will be processed.
+
+For the case of requests taking parameters, the following form is to be used:
+`<token><space><request><space><request,parameters,separated,by,commas><newline>`
+If a request has more than one parameter, those must be concatenated together, separated by
+comma characters. Please note that having two consecutive commas means passing a
+parameter which is empty. Similarly, if the list of parameters is terminated by a comma,
+the server will interpret it as having an empty parameter after that comma. To put
+it simple, commas serve the role of separators, with no exceptions of particular case.
+
 
 ### token
 
