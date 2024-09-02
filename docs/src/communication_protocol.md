@@ -77,9 +77,6 @@ Some requests can have parameters to pass to the server. Such parameters are pas
 encoded as string separated by commas. Parameters themselves can only contain ascii
 characters in the following character set: `[a-zA-Z-0-9]` and `-`.
 
-Note that a space character must always appear immediately after the request, even when
-there are no extra parameters.
-
 *FETCH_TICKET*: used to fetch data of a specific ticket.
 This command takes two parameters. The first one is the ticket's key to fetch (e.g. `PROJ-123`).
 The second one is the requested format of the reply. Can be one of `MARKDOWN`, or `HTML`.
