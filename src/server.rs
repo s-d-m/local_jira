@@ -8,7 +8,9 @@ use std::time::Duration;
 use sqlx::{Pool, Sqlite};
 use tokio::task::JoinSet;
 use tokio::time::sleep;
+use crate::get_config::Config;
 use crate::srv_fetch_ticket::serve_fetch_ticket_request;
+use crate::srv_fetch_ticket_list::serve_fetch_ticket_list_request;
 
 
 #[derive(Eq, PartialEq)]
@@ -223,24 +225,25 @@ impl Request {
 
 pub(crate) struct Reply(pub String);
 
-async fn serve_request(request: Request, out_for_replies: tokio::sync::mpsc::Sender<Reply>, db_conn: Pool<Sqlite>) {
+async fn serve_request(config: Config, request: Request, out_for_replies: tokio::sync::mpsc::Sender<Reply>, mut db_conn: Pool<Sqlite>) {
   let Request { request_id, request_kind: request } = request;
   let request_id = request_id.as_str();
   match request {
-    RequestKind::Fetch_Ticket(params) => { serve_fetch_ticket_request(request_id, params.as_str(), out_for_replies, &db_conn).await }
-    RequestKind::Fetch_Ticket_List => {}
+    RequestKind::Fetch_Ticket(params) => { serve_fetch_ticket_request(config, request_id, params.as_str(), out_for_replies, &mut db_conn).await }
+    RequestKind::Fetch_Ticket_List => {serve_fetch_ticket_list_request(config, request_id, out_for_replies, &mut db_conn).await }
     RequestKind::Fetch_Ticket_Key_Value_Fields(_) => {}
     RequestKind::Fetch_Attachment_List_For_Ticket(_) => {}
     RequestKind::Fetch_Attachment_Content(_) => {}
     RequestKind::Synchronise_Ticket(_) => {}
     RequestKind::Synchronise_Updated => {}
     RequestKind::Synchronise_All => {}
-    RequestKind::Exit_Server_After_Requests => {}
+    RequestKind::Exit_Server_After_Requests => { return }
     RequestKind::Exit_Server_Now => { return }
   }
 }
 
-async fn process_events(mut events_to_process: tokio::sync::mpsc::Receiver<Request>,
+async fn process_events(config: Config,
+                        mut events_to_process: tokio::sync::mpsc::Receiver<Request>,
                         out_for_replies: tokio::sync::mpsc::Sender<Reply>,
                         db_conn: Pool<Sqlite>) {
   let mut exit_requested = false;
@@ -267,7 +270,7 @@ async fn process_events(mut events_to_process: tokio::sync::mpsc::Receiver<Reque
             id_of_exit_immediate_request = request.request_id;
           }
           _ => {
-            handles.spawn(serve_request(request, out_for_replies.clone(), db_conn.clone()));
+            handles.spawn(serve_request(config.clone(), request, out_for_replies.clone(), db_conn.clone()));
           }
         }
       }
@@ -327,8 +330,11 @@ fn stdin_to_request(request_queue: tokio::sync::mpsc::Sender<Request>) {
   let mut stdin_input: String = Default::default();
 
   while !request_queue.is_closed() {
-    // todo: get rid of blocking read as otherwise the shutdown has to wait for the user to
-    // enter a newline
+    // When changing code here, make sure that a request to exit the server doesn't require
+    // the user to first type enter a second time for the request to be processed. This can
+    // easily happen when the blocking call to read from stdin is done on the same thread
+    // managing background tasks. Therefore, keep this code in a dedicated thread (not a
+    // tokio thread)
 
     stdin_input.clear();
       let _ = io::stdin().read_line(&mut stdin_input);
@@ -352,13 +358,13 @@ fn stdin_to_request(request_queue: tokio::sync::mpsc::Sender<Request>) {
 }
 
 pub(crate)
-async fn server_request_loop(db_conn: &Pool<Sqlite>) {
+async fn server_request_loop(config: &Config, db_conn: &Pool<Sqlite>) {
   eprintln!("Ready to accept requests");
 
   let (request_to_processor_sender, request_receiver) = tokio::sync::mpsc::channel(1000);
   let (reply_sender, mut reply_receiver) = tokio::sync::mpsc::channel(1000);
 
-  let event_processor_handle = tokio::spawn(process_events(request_receiver, reply_sender, db_conn.clone()));
+  let event_processor_handle = tokio::spawn(process_events(config.clone(), request_receiver, reply_sender, db_conn.clone()));
 
   let (request_on_stdin_sender, mut request_on_stdin_receiver) = tokio::sync::mpsc::channel(1000);
   let stdin_to_req_handle = std::thread::spawn(move || {
