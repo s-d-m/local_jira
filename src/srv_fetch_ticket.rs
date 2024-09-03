@@ -3,6 +3,7 @@ use base64::Engine;
 use sqlx::{Error, FromRow, Pool, Sqlite};
 use sqlx::types::JsonValue;
 use crate::atlassian_document_format::root_elt_doc_to_string;
+use crate::find_issues_that_need_updating::update_interesting_projects_in_db;
 use crate::get_config::Config;
 use crate::get_issue_details::add_details_to_issue_in_db;
 use crate::server::Reply;
@@ -242,8 +243,8 @@ pub(crate) async fn serve_fetch_ticket_request(config: Config,
 
     let format = output_format::new(format);
 
-    let old_data = get_jira_ticket(&format, issue_key, db_conn).await;
-    match &old_data {
+    let new_data = get_jira_ticket(&format, issue_key, db_conn).await;
+    match &new_data {
       Ok(data) => {
         let data = base64::engine::general_purpose::STANDARD.encode(data.as_bytes());
         let _ = out_for_replies.send(Reply(format!("{request_id} RESULT {data}\n"))).await;
@@ -261,10 +262,23 @@ pub(crate) async fn serve_fetch_ticket_request(config: Config,
     //
     // Todo: Also update the links between tickets.
     let new_data = get_jira_ticket(&format, issue_key, db_conn).await;
-    match (&new_data, &old_data) {
+    match (&new_data, &new_data) {
       (Ok(new_data), Ok(old_data)) if new_data == old_data => {},
       (Ok(new_data), _) => {
         let data = base64::engine::general_purpose::STANDARD.encode(new_data.as_bytes());
+        let _ = out_for_replies.send(Reply(format!("{request_id} RESULT {data}\n"))).await;
+      },
+      (Err(e), _) => {
+        let _ = out_for_replies.send(Reply(format!("{request_id} ERROR {e}\n"))).await;
+      }
+    }
+
+    update_interesting_projects_in_db(&config, db_conn).await;
+    let newest_data = get_jira_ticket(&format, issue_key, db_conn).await;
+    match (&newest_data, &new_data) {
+      (Ok(newest_data), Ok(new_data)) if newest_data == new_data => {},
+      (Ok(newest_data), _) => {
+        let data = base64::engine::general_purpose::STANDARD.encode(newest_data.as_bytes());
         let _ = out_for_replies.send(Reply(format!("{request_id} RESULT {data}\n"))).await;
       },
       (Err(e), _) => {
