@@ -10,6 +10,7 @@ use tokio::task::JoinSet;
 use tokio::time::sleep;
 use crate::get_config::Config;
 use crate::srv_fetch_ticket::serve_fetch_ticket_request;
+use crate::srv_fetch_ticket_key_value_list::serve_fetch_ticket_key_value_fields;
 use crate::srv_fetch_ticket_list::serve_fetch_ticket_list_request;
 
 
@@ -231,7 +232,9 @@ async fn serve_request(config: Config, request: Request, out_for_replies: tokio:
   match request {
     RequestKind::Fetch_Ticket(params) => { serve_fetch_ticket_request(config, request_id, params.as_str(), out_for_replies, &mut db_conn).await }
     RequestKind::Fetch_Ticket_List => {serve_fetch_ticket_list_request(config, request_id, out_for_replies, &mut db_conn).await }
-    RequestKind::Fetch_Ticket_Key_Value_Fields(_) => {}
+    RequestKind::Fetch_Ticket_Key_Value_Fields(params) => {
+      serve_fetch_ticket_key_value_fields(config, request_id, params.as_str(), out_for_replies, &mut db_conn).await
+    }
     RequestKind::Fetch_Attachment_List_For_Ticket(_) => {}
     RequestKind::Fetch_Attachment_Content(_) => {}
     RequestKind::Synchronise_Ticket(_) => {}

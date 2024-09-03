@@ -234,7 +234,7 @@ pub(crate) async fn serve_fetch_ticket_request(config: Config,
 
   let nr_params = splitted_params.len();
   if nr_params != 2 {
-    let err_msg = format!("{request_id} ERROR invalid parameters. FETCH TICKET need two parameters separated by commas byt got {nr_params} instead. Params=[{params}]\n");
+    let err_msg = format!("{request_id} ERROR invalid parameters. FETCH_TICKET needs two parameters separated by commas but got {nr_params} instead. Params=[{params}]\n");
     let _ = out_for_replies.send(Reply(err_msg)).await;
   } else {
     let issue_key = splitted_params[0];

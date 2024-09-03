@@ -40,6 +40,8 @@ mod manage_project_table;
 mod server;
 mod utils;
 mod srv_fetch_ticket;
+mod srv_fetch_ticket_list;
+mod srv_fetch_ticket_key_value_list;
 
 async fn init_db(db_path: &std::path::PathBuf) -> Result<Pool<Sqlite>, String> {
     let path = db_path.to_str();
