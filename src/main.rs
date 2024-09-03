@@ -3,7 +3,7 @@ extern crate core;
 use std::ffi::OsStr;
 
 use std::os::unix::ffi::OsStrExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::find_issues_that_need_updating::update_interesting_projects_in_db;
 use base64::Engine;
@@ -94,11 +94,25 @@ fn get_str_for_key<'a>(x: &'a serde_json::Value, key_name: &str) -> Option<&'a s
 
 #[tokio::main]
 pub async fn main() {
-    let config_file = OsStr::from_bytes(defaults::DEFAULT_CONFIG_FILE_PATH.as_bytes());
-    let config = match get_config(Path::new(config_file)) {
+    let config_dir = dirs::config_dir();
+    let config_dir = match config_dir {
+        Some(v) => {v}
+        None => {
+            eprintln!("Error: couldn't find out the configuration directory");
+            return;
+        }
+    };
+
+    let mut config_file = config_dir;
+    config_file.push(defaults::DEFAULT_CONFIG_FILE_PATH);
+    let config_file = config_file;
+    eprintln!("Using config file from {config_file:?}");
+
+    let config = get_config(config_file.as_path());
+    let config = match config {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("Error: Failed to read config file at {config_file:?}.\nError: {e}");
+            eprintln!("Error: Failed to read config file at {config_file:?}. Error: {e:?}");
             return;
         }
     };
@@ -107,7 +121,7 @@ pub async fn main() {
     let db = init_db(db_path)
       .await;
 
-    let mut db = match db {
+    let db = match db {
         Ok(v) => {v}
         Err(e) => {
             eprintln!("Error while initialising the database. Err: {e}");
@@ -115,10 +129,5 @@ pub async fn main() {
         }
     };
 
-//
-//     initialise_interesting_projects_in_db(&config, &mut db).await;
-// eprintln!("START UPDATING INTERESTING PROJECT");
-// //    update_interesting_projects_in_db(&config, &mut db).await;
-// eprintln!("STOP UPDATING INTERESTING PROJECT");
-    server::server_request_loop(&db).await;
+    server::server_request_loop(&config, &db).await;
 }
