@@ -8,7 +8,13 @@ use std::time::Duration;
 use sqlx::{Pool, Sqlite};
 use tokio::task::JoinSet;
 use tokio::time::sleep;
+use crate::find_issues_that_need_updating::update_interesting_projects_in_db;
 use crate::get_config::Config;
+use crate::manage_field_table::update_fields_in_db;
+use crate::manage_interesting_projects::initialise_interesting_projects_in_db;
+use crate::manage_issuelinktype_table::update_issue_link_types_in_db;
+use crate::manage_issuetype_table::update_issue_types_in_db;
+use crate::manage_project_table::update_project_list_in_db;
 use crate::srv_fetch_attachment_content::serve_fetch_attachment_content;
 use crate::srv_fetch_attachment_list_for_ticket::serve_fetch_ticket_attachment_list;
 use crate::srv_fetch_ticket::serve_fetch_ticket_request;
@@ -375,9 +381,58 @@ fn stdin_to_request(request_queue: tokio::sync::mpsc::Sender<Request>) {
 
 }
 
+async fn background_jira_schema_update(config: Config, mut db_conn: Pool<Sqlite>) {
+  let wait_before_loop_iteration = Duration::from_secs(300);
+
+  loop {
+    let mut db_issue_type_handle = &mut db_conn.clone();
+    let mut db_fields_handle = &mut db_conn.clone();
+    let mut db_link_types_handles = &mut db_conn.clone();
+    let mut db_project_list_handle = &mut db_conn.clone();
+
+    tokio::join!(
+            update_issue_types_in_db(&config, &mut db_issue_type_handle),
+            update_fields_in_db(&config, &mut db_fields_handle),
+            update_issue_link_types_in_db(&config, &mut db_link_types_handles),
+            update_project_list_in_db(&config, &mut db_project_list_handle)
+    );
+
+    tokio::time::sleep(wait_before_loop_iteration).await;
+  }
+}
+
+async fn background_project_update(config: Config, mut db_conn: Pool<Sqlite>) {
+  let wait_before_loop_iteration = Duration::from_secs(90);
+
+  loop {
+    update_interesting_projects_in_db(&config, &mut db_conn).await;
+    tokio::time::sleep(wait_before_loop_iteration).await;
+  }
+}
+
+async fn background_full_initialise_project(config: Config, mut db_conn: Pool<Sqlite>) {
+  let wait_before_loop_iteration = Duration::from_secs(7200);
+
+  loop {
+    initialise_interesting_projects_in_db(&config, &mut db_conn).await;
+    tokio::time::sleep(wait_before_loop_iteration).await;
+  }
+}
+
+async fn background_tasks(config: Config, mut db_conn: Pool<Sqlite>) {
+  let full_initialise_project = tokio::spawn(background_full_initialise_project(config.clone(), db_conn.clone()));
+  let project_update_handle = tokio::spawn(background_project_update(config.clone(), db_conn.clone()));
+  let jira_schema_update = tokio::spawn(background_jira_schema_update(config.clone(), db_conn.clone()));
+
+  let _ = project_update_handle.await;
+  let _ = jira_schema_update.await;
+  let _ = full_initialise_project.await;
+}
+
 pub(crate)
 async fn server_request_loop(config: &Config, db_conn: &Pool<Sqlite>) {
-  eprintln!("Ready to accept requests");
+
+  let background_tasks_handle = tokio::spawn(background_tasks(config.clone(), db_conn.clone()));
 
   let (request_to_processor_sender, request_receiver) = tokio::sync::mpsc::channel(1000);
   let (reply_sender, mut reply_receiver) = tokio::sync::mpsc::channel(1000);
@@ -388,6 +443,8 @@ async fn server_request_loop(config: &Config, db_conn: &Pool<Sqlite>) {
   let stdin_to_req_handle = std::thread::spawn(move || {
     stdin_to_request(request_on_stdin_sender)
   });
+
+  eprintln!("Ready to accept requests");
 
   while !reply_receiver.is_closed() {
     while let Ok(req) = request_on_stdin_receiver.try_recv() {
@@ -409,4 +466,6 @@ async fn server_request_loop(config: &Config, db_conn: &Pool<Sqlite>) {
   request_on_stdin_receiver.close();
   let _ = event_processor_handle.abort();
   drop(stdin_to_req_handle);
+
+  let _ = background_tasks_handle.abort();
 }

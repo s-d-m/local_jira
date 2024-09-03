@@ -115,20 +115,6 @@ pub async fn main() {
         }
     };
 
-
-    {
-        let mut db_issue_type_handle = &mut db.clone();
-        let mut db_fields_handle = &mut db.clone();
-        let mut db_link_types_handles = &mut db.clone();
-        let mut db_project_list_handle = &mut db.clone();
-
-        tokio::join!(
-            update_issue_types_in_db(&config, &mut db_issue_type_handle),
-            update_fields_in_db(&config, &mut db_fields_handle),
-            update_issue_link_types_in_db(&config, &mut db_link_types_handles),
-            update_project_list_in_db(&config, &mut db_project_list_handle)
-        );
-    }
 //
 //     initialise_interesting_projects_in_db(&config, &mut db).await;
 // eprintln!("START UPDATING INTERESTING PROJECT");
