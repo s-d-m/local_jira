@@ -846,3 +846,29 @@ Careful! There should be a mechanism to prevent writes access to the database.
 Not that critical considering that if a user messes up the SQL request, it is
 always possible to delete the database and restart the first synchronisation
 process.     
+
+### Difficulty
+Hard
+
+
+## Optimise serve_synchronise_ticket
+### Problem
+
+The serve_synchronise_ticket function is used to ensure a ticket is up to date
+in the database. The current algorithm used relies on having all tickets there
+first, to ensure adding links will work. However, most of the time it can be
+determined that the links are already up to date, or link only to tickets which
+are already present in the local database. This means, it is possible to tell
+the user a ticket is already up to date much quicker than currently done.
+
+### Solution
+When updating a ticket, download the json with the data for that ticket, and
+check if the other tickets referenced in the links are already in the database.
+Note: the description of the linked issues also need to be up to date since
+they appear in the data of the ticket.
+If all referenced tickets are already in the database, and their descriptions
+are also up to date, then updating a ticket can be done using only the data
+of that one ticket.
+
+### Difficulty
+Hard (there might some interference here with the update_all algorithm)

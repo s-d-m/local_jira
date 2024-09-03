@@ -22,6 +22,16 @@ pub(crate) async fn serve_synchronise_ticket(config: Config,
   } else {
     let issue_key = splitted_params[0];
 
+    // todo: implement quick exit here. We update all tickets because if links are added to a newly created
+    // ticket, adding that link to the database would fail due to foreign key constraint.
+    // Therefore, to ensure we get all latest data, we update all tickets first, such that
+    // creating new links will be guaranteed to work.
+    // Most of the time this is unnecessary since links don't change often. And even less so
+    // to newly created tickets. In other words, we could check if the links are up to date
+    // separately first, and if they are, we can skip the part about updating interesting
+    // project. We could still do it, but in the background, after replying that we finished
+    // this request. From a user point of view, this request is finished when the given
+    // ticket is guaranteed to be up to date.
     let mut db_conn = db_conn;
     update_interesting_projects_in_db(&config, &mut db_conn).await;
     add_details_to_issue_in_db(&config, issue_key, &mut db_conn).await;
