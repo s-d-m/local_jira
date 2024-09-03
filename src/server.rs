@@ -14,6 +14,7 @@ use crate::srv_fetch_attachment_list_for_ticket::serve_fetch_ticket_attachment_l
 use crate::srv_fetch_ticket::serve_fetch_ticket_request;
 use crate::srv_fetch_ticket_key_value_list::serve_fetch_ticket_key_value_fields;
 use crate::srv_fetch_ticket_list::serve_fetch_ticket_list_request;
+use crate::srv_synchronise_all::serve_synchronise_all;
 use crate::srv_synchronise_ticket::serve_synchronise_ticket;
 use crate::srv_synchronise_updated::serve_synchronise_updated_tickets;
 
@@ -251,7 +252,9 @@ async fn serve_request(config: Config, request: Request, out_for_replies: tokio:
     RequestKind::Synchronise_Updated => {
       serve_synchronise_updated_tickets(config, request_id, out_for_replies, &mut db_conn).await
     }
-    RequestKind::Synchronise_All => {}
+    RequestKind::Synchronise_All => {
+      serve_synchronise_all(config, request_id, out_for_replies, &mut db_conn).await
+    }
     RequestKind::Exit_Server_After_Requests => { return }
     RequestKind::Exit_Server_Now => { return }
   }
