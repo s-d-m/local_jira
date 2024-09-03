@@ -196,7 +196,9 @@ Upon receiving a valid FETCH_TICKET_LIST query, the server will reply (in case o
 ```
 
 Hopefully, jira issue keys will always have the form <uppercase letter><dash><numbers> and therefore
-this reply won't break anything.
+this reply won't break anything. If this assumption turns out to be false, this reply schema should be
+changed accordingly. However, best is still to implement a proper communication mechanism instead of
+bespoke text-based one.
 
 similarly to a FETCH_TICKET query, a server implementation can decide to terminate the query
 after sending the data immediately available in the database or instead keep the query on going,
