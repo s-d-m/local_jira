@@ -10,6 +10,7 @@ use base64::Engine;
 use sqlx;
 use sqlx::migrate::MigrateDatabase;
 use sqlx::{Execute, Executor, FromRow, Pool, Sqlite, SqlitePool, Statement};
+use crate::defaults::EXAMPLE_CONFIG_FILE;
 
 use crate::get_config::{get_config, Config};
 use crate::get_issue_details::add_details_to_issue_in_db;
@@ -113,6 +114,7 @@ pub async fn main() {
         Ok(v) => v,
         Err(e) => {
             eprintln!("Error: Failed to read config file at {config_file:?}. Error: {e:?}");
+            eprintln!("Try to create a file at the aforementioned place, with the following content:\n{EXAMPLE_CONFIG_FILE}");
             return;
         }
     };
