@@ -44,6 +44,7 @@ mod srv_fetch_ticket_list;
 mod srv_fetch_ticket_key_value_list;
 mod srv_fetch_attachment_list_for_ticket;
 mod srv_fetch_attachment_content;
+mod srv_synchronise_ticket;
 
 async fn init_db(db_path: &std::path::PathBuf) -> Result<Pool<Sqlite>, String> {
     let path = db_path.to_str();

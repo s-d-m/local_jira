@@ -14,6 +14,7 @@ use crate::srv_fetch_attachment_list_for_ticket::serve_fetch_ticket_attachment_l
 use crate::srv_fetch_ticket::serve_fetch_ticket_request;
 use crate::srv_fetch_ticket_key_value_list::serve_fetch_ticket_key_value_fields;
 use crate::srv_fetch_ticket_list::serve_fetch_ticket_list_request;
+use crate::srv_synchronise_ticket::serve_synchronise_ticket;
 
 
 #[derive(Eq, PartialEq)]
@@ -243,7 +244,9 @@ async fn serve_request(config: Config, request: Request, out_for_replies: tokio:
     RequestKind::Fetch_Attachment_Content(params) => {
       serve_fetch_attachment_content(request_id, params.as_str(), out_for_replies, &mut db_conn).await
     }
-    RequestKind::Synchronise_Ticket(_) => {}
+    RequestKind::Synchronise_Ticket(params) => {
+      serve_synchronise_ticket(config, request_id, params.as_str(), out_for_replies, &mut db_conn).await
+    }
     RequestKind::Synchronise_Updated => {}
     RequestKind::Synchronise_All => {}
     RequestKind::Exit_Server_After_Requests => { return }
