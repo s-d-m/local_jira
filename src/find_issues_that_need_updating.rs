@@ -357,6 +357,5 @@ pub(crate) async fn update_interesting_projects_in_db(config: &Config, db_conn: 
       .collect::<JoinSet<_>>();
 
     while let Some(res) = tasks.join_next().await {
-
     }
 }

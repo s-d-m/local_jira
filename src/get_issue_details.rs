@@ -95,8 +95,8 @@ async fn get_issue_properties_in_db(
         Ok(data) => data,
         Err(e) => {
             eprintln!(
-        "Error occurred while trying to get properties from local database for issue with id {issue_id}: {e}",
-      );
+                "Error occurred while trying to get properties from local database for issue with id {issue_id}: {e}",
+            );
             Vec::new()
         }
     }
