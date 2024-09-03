@@ -391,6 +391,12 @@ async fn server_request_loop(config: &Config, db_conn: &Pool<Sqlite>) {
     tokio::time::sleep(Duration::from_millis(50)).await;
   }
 
+  if !reply_receiver.is_empty() {
+    while let Ok(reply) = reply_receiver.try_recv() {
+      println!("{}", reply.0)
+    }
+  }
+
   request_on_stdin_receiver.close();
   let _ = event_processor_handle.abort();
   drop(stdin_to_req_handle);
