@@ -38,7 +38,7 @@ async fn get_fields(jira_key: &str, is_custom: bool, db_conn: &Pool<Sqlite>) -> 
       JOIN Issue ON Issue.jira_id == IssueField.issue_id
       WHERE Issue.key == ?
         AND is_custom == ?
-      ORDER BY name";
+      ORDER BY name ASC";
   let is_custom_as_int = if is_custom { 1 } else { 0 };
   sqlx::query_as::<_, Field>(query_str)
     .bind(jira_key)

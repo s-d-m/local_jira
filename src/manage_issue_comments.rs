@@ -196,7 +196,7 @@ async fn get_comments_from_db_for_issue(
       "SELECT id, position_in_array, content_data, author, creation_time, last_modification_time
        FROM Comment
        WHERE issue_id = ?
-       ORDER BY position_in_array";
+       ORDER BY position_in_array ASC";
 
     let rows = sqlx::query_as::<_, CommentsFromDbForIssue>(query_str)
         .bind(issue_id)

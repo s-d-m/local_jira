@@ -10,14 +10,14 @@ struct key_value_in_db {
   field_value: String,
 }
 
-async fn get_ticket_key_value_list(issue_key:&str, db_conn: &mut Pool<Sqlite>) -> Result<String, String> {
+async fn get_ticket_key_value_list(issue_key: &str, db_conn: &mut Pool<Sqlite>) -> Result<String, String> {
   let query_str =
     "SELECT human_name AS field_key, field_value
      FROM Field
      JOIN IssueField
      ON IssueField.field_id = Field.jira_id
      WHERE IssueField.issue_id = (select jira_id from Issue where Issue.key = ?)
-     ORDER BY field_key;"; // ordering used so it is easy to check for changes in the db
+     ORDER BY field_key ASC;"; // ordering used so it is easy to check for changes in the db
 
   let query_res = sqlx::query_as::<_, key_value_in_db>(query_str)
     .bind(issue_key)
