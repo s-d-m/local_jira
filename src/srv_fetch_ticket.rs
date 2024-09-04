@@ -114,9 +114,7 @@ async fn get_jira_ticket_as_markdown(jira_key: &str, db_conn: &Pool<Sqlite>) -> 
     .map(|x| (x.name.as_str(), x))
     .collect::<HashMap<_, &Field>>();
 
-  let summary = system_fields
-    .iter()
-    .find(|x| x.name == "Summary")
+  let summary = hashed_system_fields.get("Summary")
     .and_then(|x| x.value.as_str());
 
   let Some(summary) = summary else {
