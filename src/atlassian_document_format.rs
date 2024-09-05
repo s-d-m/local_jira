@@ -550,7 +550,7 @@ fn decision_list_to_string(decision_list: &Map<String, Value>) -> StringWithNode
     let content = content
         .iter()
         .map(value_to_string)
-        .map(|a| format!("  decision: {}", a.text))
+        .map(|a| format!("{a}", a = a.text))
         .reduce(|a, b| format!("{a}\n{b}"))
         .unwrap_or_default();
 
@@ -576,8 +576,28 @@ fn decision_item_to_string(decision_item: &Map<String, Value>) -> StringWithNode
         return json_to_toplevel_string(decision_item);
     };
 
+    let decision_state = decision_item
+      .get("attrs")
+      .and_then(|x| x.as_object())
+      .and_then(|x| x.get("state"))
+      .and_then(|x| x.as_str())
+      .unwrap_or_default();
+
+    let decision_state = match decision_state {
+        "DECIDED" => "agreed on",
+        "UNDECIDED" => "not yet agreed on",
+        _ => "unknown"
+    };
+
+    // Looks like a decision can be either DECIDED or UNDECIDED
+    // but not sure about other possibilities
+
     let res = array_of_value_to_string(content);
-    res
+    let res_text = format!("Decision {decision_state}: {x}", x = res.text);
+    StringWithNodeLevel {
+        text: res_text,
+        node_level: res.node_level
+    }
 }
 
 fn media_to_string(media: &Map<String, Value>) -> StringWithNodeLevel {
