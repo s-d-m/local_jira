@@ -808,21 +808,159 @@ fn decision_item_to_html_string(decision_item: &Map<String, Value>, db_conn: &Po
   res
 }
 
-fn media_to_string(media: &Map<String, Value>) -> StringWithNodeLevel {
-  let res_str = json_map_to_html_string(media);
+fn get_file_data_from_uuid_in_db(media: &Map<String, Value>, db_conn: &Pool<Sqlite>, id: &str) -> Result<FileData, StringWithNodeLevel> {
 
-  // the media node doesn't really fit for a text output.
-  // could try to do interesting things like displaying images in the terminal,
-  // create clickable links for terminals supporting them etc
-  // instead, just dump the json here.
-
-  StringWithNodeLevel {
-    text: res_str,
-    node_level: NodeLevel::ChildNode,
-  }
+  let query_str =
+    "SELECT filename, file_size AS size, mime_type, content_data AS data
+        FROM Attachment
+        WHERE uuid = ?;";
+  let query_res = tokio::task::block_in_place(move || {
+    Handle::current().block_on(async move {
+      sqlx::query_as::<_, FileData>(query_str)
+        .bind(id)
+        .fetch_one(&*db_conn)
+        .await
+    })
+  });
+  let query_res = match query_res {
+    Ok(v) => { v }
+    Err(e) => {
+      eprintln!("Error: couldn't get data for file with uuid={id} from local database. Err; {e:?}");
+      return Err(json_to_toplevel_html_string(media));
+    }
+  };
+  Ok(query_res)
 }
 
-fn media_single_to_html_string(media_single_item: &Map<String, Value>) -> StringWithNodeLevel {
+fn media_to_html_string(media: &Map<String, Value>, db_conn: &Pool<Sqlite>) -> StringWithNodeLevel {
+
+  let attrs = media
+    .get("attrs")
+    .and_then(|x| x.as_object());
+
+  let attrs = match attrs {
+    None => {return json_to_toplevel_html_string(media)}
+    Some(v) => {v}
+  };
+
+  let id = attrs
+    .get("id")
+    .and_then(|x| x.as_str());
+  let id = match id {
+    None => {return json_to_toplevel_html_string(media)}
+    Some(v) => {v}
+  };
+
+  let id_type =  attrs
+    .get("type")
+    .and_then(|x| x.as_str());
+  let id_type = match id_type {
+    None => {return json_to_toplevel_html_string(media)}
+    Some(v) => {v}
+  };
+
+  let width =  attrs
+    .get("width")
+    .and_then(|x| x.as_u64());
+
+  let height =  attrs
+    .get("height")
+    .and_then(|x| x.as_u64());
+
+
+  let text = match id_type {
+    "file" => {
+      let file_data = match get_file_data_from_uuid_in_db(media, db_conn, id) {
+        Ok(value) => value,
+        Err(value) => return value,
+      };
+      let base64_data = base64::engine::general_purpose::STANDARD.encode(file_data.data.as_slice());
+      let mime_type = file_data.mime_type;
+      let filename = file_data.filename;
+      let width = match width {
+        None => {String::from("")}
+        Some(i) => { format!(" width=\"{i}\"") }
+      };
+      let height = match height {
+        None => {String::from("")}
+        Some(i) => { format!(" height=\"{i}\"") }
+      };
+
+      let text = match mime_type {
+        mime_type if mime_type.starts_with("image/svg") => {
+          String::from_utf8_lossy(file_data.data.as_slice()).to_string()
+        }
+        mime_type if mime_type.starts_with("image/") => {
+          format!("<img{width}{height} src=\"data:{mime_type};base64,{base64_data}\">")
+        }
+        mime_type if mime_type.starts_with("video/") || mime_type.starts_with("audio/") => {
+          let tag = mime_type.split('/').nth(0);
+          let tag = match tag {
+            None => { // could assert here since at this point, tag is either audio or video
+              return json_to_toplevel_html_string(media)}
+            Some(v) => {v}
+          };
+          let download_html_text = format!("<a href=\"data:{mime_type};base64,{base64_data}\" download=\"{filename}\">{filename}</a>");
+          format!(
+"<{tag}{width}{height} controls>
+  <source src=\"data:{mime_type};base64,{base64_data}\" type=\"{mime_type}\">
+  download {tag} file here: {download_html_text}
+</{tag}>")
+        }
+        _ => {
+          let download_html_text = format!("<a href=\"data:{mime_type};base64,{base64_data}\" download=\"{filename}\">{filename}</a>");
+          download_html_text
+        }
+      };
+      text
+    }
+    "link" => {
+      let filename_attr = attrs
+        .get("alt")
+        .and_then(|x| x.as_str())
+        .and_then(|x| Some(format!(" filename=\"{x}\"")))
+        .unwrap_or_default();
+
+      let text = format!("<a href=\"{id}\"{filename_attr} download>{id}</a>");
+      text
+    }
+    _ => {
+      eprintln!("Invalid id type found: expecting [file] or [link] got [{id_type}]");
+      return json_to_toplevel_html_string(media);
+    }
+  };
+
+  let style_attr = match (width, height) {
+    (None, None) => {String::from("")}
+    _ => {
+      let width_str = match width {
+        None => {String::from("")}
+        Some(i) => {format!("width: {i}px;")}
+      };
+
+      let height_str =  match height {
+        None => {String::from("")}
+        Some(i) => {format!("height: {i}px;")}
+      };
+
+      format!(" style=\"{height_str}{width_str}\"")
+    }
+  };
+
+  let text = indent_with(text.as_str(), "  ");
+  let text = format!(
+"<div class=\"media\"{style_attr}>
+{text}
+</div>");
+
+  let res = StringWithNodeLevel {
+    text,
+    node_level: NodeLevel::Inline,
+  };
+  res
+}
+
+fn media_single_to_html_string(media_single_item: &Map<String, Value>, db_conn: &Pool<Sqlite>) -> StringWithNodeLevel {
   // https://developer.atlassian.com/cloud/jira/platform/apis/document/nodes/mediaSingle/
   // says that media single has the following attributes:
   //
@@ -857,7 +995,7 @@ fn media_single_to_html_string(media_single_item: &Map<String, Value>) -> String
   }
 
   // this is only a media element, ...
-  media_to_string(content)
+  media_to_html_string(content, db_conn)
 }
 
 #[derive(FromRow)]
@@ -868,7 +1006,7 @@ struct FileData {
   data: Vec<u8>
 }
 
-fn media_inline_to_string(media_inline_item: &Map<String, Value>, db_conn: &Pool<Sqlite>) -> StringWithNodeLevel {
+fn media_inline_to_html_string(media_inline_item: &Map<String, Value>, db_conn: &Pool<Sqlite>) -> StringWithNodeLevel {
   // on the web browser, jira UI displays media_inline_item as clickable links
   // inside the text. Clicking the link downloads the file.
   // Here, ... let's treat it like a media single item
@@ -899,31 +1037,13 @@ fn media_inline_to_string(media_inline_item: &Map<String, Value>, db_conn: &Pool
 
   let text = match id_type {
     "file" => {
-      let query_str =
-        "SELECT filename, file_size AS size, mime_type, content_data AS data
-        FROM Attachment
-        WHERE uuid = ?;";
-      let query_future = sqlx::query_as::<_, FileData>(query_str)
-        .bind(id)
-        .fetch_one(&*db_conn);
-
-
-      // Get a handle from this runtime
-
-      let query_res = tokio::task::block_in_place(move || {
-        Handle::current().block_on(async move {
-          query_future.await
-        })});
-      let query_res = match query_res {
-        Ok(v) => {v}
-        Err(e) => {
-          eprintln!("Error: couldn't get data for file with uuid={id} from local database. Err; {e:?}");
-          return json_to_toplevel_html_string(media_inline_item);
-        }
+      let file_data = match get_file_data_from_uuid_in_db(media_inline_item, db_conn, id) {
+        Ok(value) => value,
+        Err(value) => return value,
       };
-      let base64_data = base64::engine::general_purpose::STANDARD.encode(query_res.data);
-      let mime_type = query_res.mime_type;
-      let filename = query_res.filename;
+      let base64_data = base64::engine::general_purpose::STANDARD.encode(file_data.data);
+      let mime_type = file_data.mime_type;
+      let filename = file_data.filename;
       let text = format!("<a href=\"data:{mime_type};base64,{base64_data}\" download=\"{filename}\">{filename}</a>");
       text
     }
@@ -1010,7 +1130,7 @@ fn inline_card_to_html_string(inline_card: &Map<String, Value>) -> StringWithNod
   }
 }
 
-fn media_group_to_string(media_group_item: &Map<String, Value>, db_conn: &Pool<Sqlite>) -> StringWithNodeLevel {
+fn media_group_to_html_string(media_group_item: &Map<String, Value>, db_conn: &Pool<Sqlite>) -> StringWithNodeLevel {
   let Some(content) =  media_group_item.get("content") else {
     return json_to_toplevel_html_string(media_group_item);
   };
@@ -1062,10 +1182,10 @@ fn object_to_html_string(json: &Map<String, Value>, db_conn: &Pool<Sqlite>) -> S
     "heading" => heading_to_html_string(json, db_conn),
     "inlineCard" => inline_card_to_html_string(json),
     "listItem" => list_item_to_html_string(json, db_conn),
-    "media" => media_to_string(json),
-    "mediaInline" => media_inline_to_string(json, db_conn), // not in the documentation, but seen in the wild
-    "mediaSingle" => media_single_to_html_string(json),
-    "mediaGroup" => media_group_to_string(json, db_conn),
+    "media" => media_to_html_string(json, db_conn),
+    "mediaInline" => media_inline_to_html_string(json, db_conn), // not in the documentation, but seen in the wild
+    "mediaSingle" => media_single_to_html_string(json, db_conn),
+    "mediaGroup" => media_group_to_html_string(json, db_conn),
     "mention" => mention_to_html_string(json),
     "orderedList" => ordered_list_to_html_string(json, db_conn),
     "panel" => panel_to_html_string(json, db_conn),

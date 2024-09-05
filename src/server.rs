@@ -368,6 +368,7 @@ fn stdin_to_request(request_queue: tokio::sync::mpsc::Sender<Request>) {
         Some(data) => {data}
       };
 
+    if !without_suffix.is_empty() {
       let request = Request::from(without_suffix);
       match request {
         Ok(request) => {
@@ -378,7 +379,7 @@ fn stdin_to_request(request_queue: tokio::sync::mpsc::Sender<Request>) {
         }
       }
     }
-
+  }
 }
 
 async fn background_jira_schema_update(config: Config, mut db_conn: Pool<Sqlite>) {
