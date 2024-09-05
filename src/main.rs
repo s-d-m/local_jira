@@ -10,6 +10,8 @@ use base64::Engine;
 use sqlx;
 use sqlx::migrate::MigrateDatabase;
 use sqlx::{Execute, Executor, FromRow, Pool, Sqlite, SqlitePool, Statement};
+use crate::atlassian_document_format::root_elt_doc_to_string;
+use crate::atlassian_document_format_html_output::root_elt_doc_to_html_string;
 use crate::defaults::EXAMPLE_CONFIG_FILE;
 
 use crate::get_config::{get_config, Config};
@@ -48,6 +50,8 @@ mod srv_fetch_attachment_content;
 mod srv_synchronise_ticket;
 mod srv_synchronise_updated;
 mod srv_synchronise_all;
+mod atlassian_document_format_html_output;
+mod atlassian_document_utils;
 
 async fn init_db(db_path: &std::path::PathBuf) -> Result<Pool<Sqlite>, String> {
     let path = db_path.to_str();
