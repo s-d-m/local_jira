@@ -409,34 +409,10 @@ pub(crate) async fn serve_fetch_ticket_request(config: Config,
           }
         }
 
-        let mut db_conn = db_conn;
-        add_details_to_issue_in_db(&config, issue_key, &mut db_conn).await;
-        // Todo: instead of keeping the old data in order to check for differences, only keep a hash
-        // this will use fewer data at a time and make the comparison to find out if something
-        // changed or not faster.
-        //
-        let new_data = get_jira_ticket(&format, issue_key, db_conn).await;
-        match (&new_data, &old_data) {
-          (Ok(new_data), Ok(old_data)) if new_data == old_data => {},
-          (Ok(new_data), _) if new_data.is_empty() => {
-            // shouldn't happen since get_jira_ticket should at least give back the issue id
-            // in the reply
-            let _ = out_for_replies.send(Reply(format!("{request_id} RESULT\n"))).await;
-          },
-          (Ok(new_data), _) => {
-            let data = base64::engine::general_purpose::STANDARD.encode(new_data.as_bytes());
-            let _ = out_for_replies.send(Reply(format!("{request_id} RESULT {data}\n"))).await;
-          },
-          (Err(e), _) => {
-            let _ = out_for_replies.send(Reply(format!("{request_id} ERROR {e}\n"))).await;
-          }
-        }
-        drop(old_data);
-
         update_interesting_projects_in_db(&config, db_conn).await;
         let newest_data = get_jira_ticket(&format, issue_key, db_conn).await;
-        match (&newest_data, &new_data) {
-          (Ok(newest_data), Ok(new_data)) if newest_data == new_data => {},
+        match (&newest_data, &old_data) {
+          (Ok(newest_data), Ok(old_data)) if newest_data == old_data => {},
           (Ok(newest_data), _) if newest_data.is_empty() => {
             // shouldn't happen since get_jira_ticket should at least give back the issue id
             // in the reply
