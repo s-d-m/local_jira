@@ -657,7 +657,7 @@ fn table_cell_to_string(json: &Map<String, Value>, db_conn: &Pool<Sqlite>) -> St
     node_level: NodeLevel::TopLevel,
   }
 }
-fn table_row_to_string(json: &Map<String, Value>, db_conn: &Pool<Sqlite>) -> StringWithNodeLevel {
+fn table_row_to_html_string(json: &Map<String, Value>, db_conn: &Pool<Sqlite>) -> StringWithNodeLevel {
   let content = json.get("content").and_then(|x| x.as_array());
 
   let Some(content) = content else {
@@ -666,7 +666,6 @@ fn table_row_to_string(json: &Map<String, Value>, db_conn: &Pool<Sqlite>) -> Str
   };
 
   let html_text = array_of_value_to_html_string(content, db_conn);
-  // todo: support attrs
 
   let text = indent_with(html_text.text.as_str(), "  ");
   let res_text = format!(
@@ -1262,7 +1261,7 @@ fn object_to_html_string(json: &Map<String, Value>, db_conn: &Pool<Sqlite>) -> S
     "table" => table_to_html_string(json, db_conn),
     "tableHeader" => table_header_to_string(json, db_conn),
     "tableCell" => table_cell_to_string(json, db_conn),
-    "tableRow" => table_row_to_string(json, db_conn),
+    "tableRow" => table_row_to_html_string(json, db_conn),
     "taskItem" => task_item_to_html_string(json, db_conn), // not in the documentation, but seen in the wild
     "taskList" => task_list_to_html_string(json, db_conn), // best is to try things in the playground https://developer.atlassian.com/cloud/jira/platform/apis/document/playground/
     "text" => text_to_html_string(json),
