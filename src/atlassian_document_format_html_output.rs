@@ -707,13 +707,60 @@ fn table_to_html_string(json: &Map<String, Value>, db_conn: &Pool<Sqlite>) -> St
     return to_top_level(content);
   };
 
-  // todo: support attrs
+  let attrs = json
+    .get("attrs")
+    .and_then(|x| x.as_object());
 
-  let html_text = array_of_value_to_html_string(content, db_conn);
-  let res_text = indent_with(html_text.text.as_str(), "  ");
+  let has_numbered_columns = attrs
+    .and_then(|x| x.get("isNumberColumnEnabled"))
+    .and_then(|x| x.as_bool())
+    .unwrap_or(false);
+
+  let width = attrs
+    .and_then(|x| x.get("width"))
+    .and_then(|x| x.as_u64());
+
+  let layout = attrs
+    .and_then(|x| x.get("layout"))
+    .and_then(|x| x.as_str());
+
+  let display_mode = attrs
+    .and_then(|x| x.get("displayMode"))
+    .and_then(|x| x.as_str());
+
+
+  // todo: support attrs
+  let mut cur_row = 0;
+  let html_text = content
+    .iter()
+    .map(|x| {
+      let v = value_to_html_string(x, db_conn).text;
+      let v = if has_numbered_columns {
+        if v.starts_with("<tr>\n  <td>") {
+          cur_row += 1;
+          let replacement = format!("<tr>\n  <td>{cur_row}</td>");
+          v.replace("<tr>", replacement.as_str())
+        } else if v.starts_with("<tr>\n  <th>") {
+          v.replace("<tr>", "<tr>\n  <th></th>")
+        } else {
+          v
+        }
+      } else {
+        v
+      };
+      v
+    })
+    .reduce(|a, b| format!("{a}\n{b}"));
+
+  let html_text = match html_text {
+    None => { return json_to_toplevel_html_string(json) }
+    Some(v) => {v}
+  };
+
+  let html_text = indent_with(html_text.as_str(), "  ");
   let res_text = format!(
 "<table>
-{res_text}
+{html_text}
 </table>");
 
   StringWithNodeLevel {
