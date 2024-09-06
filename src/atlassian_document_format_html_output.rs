@@ -716,20 +716,41 @@ fn table_to_html_string(json: &Map<String, Value>, db_conn: &Pool<Sqlite>) -> St
     .and_then(|x| x.as_bool())
     .unwrap_or(false);
 
-  let width = attrs
+  let width_style = attrs
     .and_then(|x| x.get("width"))
-    .and_then(|x| x.as_u64());
+    .and_then(|x| x.as_u64())
+    .and_then(|v| Some(format!("width: {v}px;")))
+    .unwrap_or_default();
 
-  let layout = attrs
+  let layout_style = attrs
     .and_then(|x| x.get("layout"))
-    .and_then(|x| x.as_str());
+    .and_then(|x| x.as_str())
+    .and_then(|x| match x {
+      "center" => Some("align-content: center;"),
+      "align-start" => Some("align-content: flex-start;"),
+      "default" | "wide" | "full_width" => {
+        // according to https://developer.atlassian.com/cloud/jira/platform/apis/document/nodes/table/
+        // those are deprecated and the widht attribute should be used instead
+        // Not relevant to us anyway
+        None
+      }
+      _ => {
+        eprintln!("Unknown layout style found");
+        None
+      }
+    })
+    .unwrap_or_default();
 
-  let display_mode = attrs
-    .and_then(|x| x.get("displayMode"))
-    .and_then(|x| x.as_str());
+  // https://developer.atlassian.com/cloud/jira/platform/apis/document/nodes/table/
+  // also defines a displayMode, but that one is not relevant for us
 
+  let style_str = format!("{width_style}{layout_style}");
+  let style_str = if style_str.is_empty() {
+    style_str
+  } else {
+    format!(" style=\"{style_str}\"")
+  };
 
-  // todo: support attrs
   let mut cur_row = 0;
   let html_text = content
     .iter()
@@ -759,7 +780,7 @@ fn table_to_html_string(json: &Map<String, Value>, db_conn: &Pool<Sqlite>) -> St
 
   let html_text = indent_with(html_text.as_str(), "  ");
   let res_text = format!(
-"<table>
+"<table{style_str}>
 {html_text}
 </table>");
 
