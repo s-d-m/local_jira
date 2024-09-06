@@ -637,7 +637,7 @@ fn to_html_verbatim(val: &str) -> String {
   format!("<verbatim>{val}</verbatim>")
 }
 
-fn table_cell_to_string(json: &Map<String, Value>, db_conn: &Pool<Sqlite>) -> StringWithNodeLevel {
+fn table_cell_to_html_string(json: &Map<String, Value>, db_conn: &Pool<Sqlite>) -> StringWithNodeLevel {
   let content = json
     .get("content")
     .and_then(|x| x.as_array());
@@ -649,9 +649,9 @@ fn table_cell_to_string(json: &Map<String, Value>, db_conn: &Pool<Sqlite>) -> St
   };
 
   let html_text = array_of_value_to_html_string(content, db_conn);
-  // todo: support attrs
+  let attrs = get_style_str_for_table_cell_and_header(json);
 
-  let res_text = format!("<td>{text}</td>", text = html_text.text);
+  let res_text = format!("<td{attrs}>{text}</td>", text = html_text.text);
   StringWithNodeLevel {
     text: res_text,
     node_level: NodeLevel::TopLevel,
@@ -678,8 +678,44 @@ fn table_row_to_html_string(json: &Map<String, Value>, db_conn: &Pool<Sqlite>) -
   }
 }
 
-fn table_header_to_string(json: &Map<String, Value>, db_conn: &Pool<Sqlite>) -> StringWithNodeLevel {
-  let content = json.get("content").and_then(|x| x.as_array());
+// on https://developer.atlassian.com/cloud/jira/platform/apis/document/nodes/table_cell/
+// and equivalent page for table header, we can see that they take the same attributes.
+// Seems to be a case of accidentally similar and therefore code shouldn't technically be
+// factored in.
+fn get_style_str_for_table_cell_and_header(json: &Map<String, Value>) -> String {
+  let attrs = json
+    .get("attrs")
+    .and_then(|x| x.as_object());
+
+  let background = attrs
+    .and_then(|x| x.get("background"))
+    .and_then(|x| x.as_str())
+    .and_then(|x| Some(format!(" style=\"background: {x};\"")))
+    .unwrap_or_default();
+
+  let colspan = attrs
+    .and_then(|x| x.get("colspan"))
+    .and_then(|x| x.as_u64())
+    .and_then(|x| Some(format!(" colspan=\"{x}\"")))
+    .unwrap_or_default();
+
+  let rowspan = attrs
+    .and_then(|x| x.get("rowspan"))
+    .and_then(|x| x.as_u64())
+    .and_then(|x| Some(format!(" rowspan=\"{x}\"")))
+    .unwrap_or_default();
+
+  // there os also a colwidth attribute, but doesn't easily map to an html/css attribute
+  // and requires significantly more work to implement properly. Let's ignore that.
+
+  let res = format!("{background}{colspan}{rowspan}");
+  res
+}
+
+fn table_header_to_html_string(json: &Map<String, Value>, db_conn: &Pool<Sqlite>) -> StringWithNodeLevel {
+  let content = json
+    .get("content")
+    .and_then(|x| x.as_array());
 
   let Some(content) = content else {
     let content = json_map_to_html_string(json);
@@ -687,9 +723,9 @@ fn table_header_to_string(json: &Map<String, Value>, db_conn: &Pool<Sqlite>) -> 
   };
 
   let html_text = array_of_value_to_html_string(content, db_conn);
-  // todo: support attrs
+  let attrs = get_style_str_for_table_cell_and_header(json);
 
-  let res_text = format!("<th>{text}</th>", text = html_text.text);
+  let res_text = format!("<th{attrs}>{text}</th>", text = html_text.text);
   StringWithNodeLevel {
     text: res_text,
     node_level: NodeLevel::TopLevel,
@@ -756,11 +792,11 @@ fn table_to_html_string(json: &Map<String, Value>, db_conn: &Pool<Sqlite>) -> St
     .map(|x| {
       let v = value_to_html_string(x, db_conn).text;
       let v = if has_numbered_columns {
-        if v.starts_with("<tr>\n  <td>") {
+        if v.starts_with("<tr>\n  <td") {
           cur_row += 1;
           let replacement = format!("<tr>\n  <td>{cur_row}</td>");
           v.replace("<tr>", replacement.as_str())
-        } else if v.starts_with("<tr>\n  <th>") {
+        } else if v.starts_with("<tr>\n  <th") {
           v.replace("<tr>", "<tr>\n  <th></th>")
         } else {
           v
@@ -1259,8 +1295,8 @@ fn object_to_html_string(json: &Map<String, Value>, db_conn: &Pool<Sqlite>) -> S
     "paragraph" => paragraph_to_html_string(json, db_conn),
     "rule" => rule_to_html_string(json),
     "table" => table_to_html_string(json, db_conn),
-    "tableHeader" => table_header_to_string(json, db_conn),
-    "tableCell" => table_cell_to_string(json, db_conn),
+    "tableHeader" => table_header_to_html_string(json, db_conn),
+    "tableCell" => table_cell_to_html_string(json, db_conn),
     "tableRow" => table_row_to_html_string(json, db_conn),
     "taskItem" => task_item_to_html_string(json, db_conn), // not in the documentation, but seen in the wild
     "taskList" => task_list_to_html_string(json, db_conn), // best is to try things in the playground https://developer.atlassian.com/cloud/jira/platform/apis/document/playground/
