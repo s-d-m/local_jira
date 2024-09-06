@@ -453,14 +453,14 @@ async fn server_request_loop(config: &Config, db_conn: &Pool<Sqlite>) {
     }
 
     while let Ok(reply) = reply_receiver.try_recv() {
-      println!("{}", reply.0)
+      print!("{}", reply.0)
     }
     tokio::time::sleep(Duration::from_millis(50)).await;
   }
 
   if !reply_receiver.is_empty() {
     while let Ok(reply) = reply_receiver.try_recv() {
-      println!("{}", reply.0)
+      print!("{}", reply.0)
     }
   }
 
