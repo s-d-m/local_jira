@@ -37,6 +37,11 @@ pub(crate) async fn serve_fetch_ticket_list_request(config: Config,
 
   let old_data = get_ticket_list(db_conn).await;
   match &old_data {
+    Ok(data) if data.is_empty() => {
+      // case where we didn't synchronise to the remote even once, or all tickets are
+      // private, or none of the interesting projects exist
+      let _ = out_for_replies.send(Reply(format!("{request_id} RESULT\n"))).await;
+    }
     Ok(data) => {
       let _ = out_for_replies.send(Reply(format!("{request_id} RESULT {data}\n"))).await;
     }
@@ -51,6 +56,10 @@ pub(crate) async fn serve_fetch_ticket_list_request(config: Config,
   let new_data = get_ticket_list(db_conn).await;
   match (&new_data, &old_data) {
     (Ok(new_data), Ok(old_data)) if new_data == old_data => {}
+    (Ok(new_data), _) if new_data.is_empty() => {
+      // case where everything got deleted
+      let _ = out_for_replies.send(Reply(format!("{request_id} RESULT\n"))).await;
+    },
     (Ok(new_data), _) => {
       let _ = out_for_replies.send(Reply(format!("{request_id} RESULT {new_data}\n"))).await;
     }

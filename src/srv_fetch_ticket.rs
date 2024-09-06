@@ -395,6 +395,11 @@ pub(crate) async fn serve_fetch_ticket_request(config: Config,
       Ok(format) => {
         let old_data = get_jira_ticket(&format, issue_key, db_conn).await;
         match &old_data {
+          Ok(data) if data.is_empty() => {
+            // shouldn't happen since get_jira_ticket should at least give back the issue id
+            // in the reply
+            let _ = out_for_replies.send(Reply(format!("{request_id} RESULT\n"))).await;
+          }
           Ok(data) => {
             let data = base64::engine::general_purpose::STANDARD.encode(data.as_bytes());
             let _ = out_for_replies.send(Reply(format!("{request_id} RESULT {data}\n"))).await;
@@ -413,6 +418,11 @@ pub(crate) async fn serve_fetch_ticket_request(config: Config,
         let new_data = get_jira_ticket(&format, issue_key, db_conn).await;
         match (&new_data, &old_data) {
           (Ok(new_data), Ok(old_data)) if new_data == old_data => {},
+          (Ok(new_data), _) if new_data.is_empty() => {
+            // shouldn't happen since get_jira_ticket should at least give back the issue id
+            // in the reply
+            let _ = out_for_replies.send(Reply(format!("{request_id} RESULT\n"))).await;
+          },
           (Ok(new_data), _) => {
             let data = base64::engine::general_purpose::STANDARD.encode(new_data.as_bytes());
             let _ = out_for_replies.send(Reply(format!("{request_id} RESULT {data}\n"))).await;
@@ -427,6 +437,11 @@ pub(crate) async fn serve_fetch_ticket_request(config: Config,
         let newest_data = get_jira_ticket(&format, issue_key, db_conn).await;
         match (&newest_data, &new_data) {
           (Ok(newest_data), Ok(new_data)) if newest_data == new_data => {},
+          (Ok(newest_data), _) if newest_data.is_empty() => {
+            // shouldn't happen since get_jira_ticket should at least give back the issue id
+            // in the reply
+            let _ = out_for_replies.send(Reply(format!("{request_id} RESULT\n"))).await;
+          },
           (Ok(newest_data), _) => {
             let data = base64::engine::general_purpose::STANDARD.encode(newest_data.as_bytes());
             let _ = out_for_replies.send(Reply(format!("{request_id} RESULT {data}\n"))).await;

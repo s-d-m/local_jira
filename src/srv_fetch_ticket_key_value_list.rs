@@ -63,6 +63,10 @@ pub(crate) async fn serve_fetch_ticket_key_value_fields(config: Config,
 
     let old_data = get_ticket_key_value_list(issue_key, db_conn).await;
     match &old_data {
+      Ok(data) if data.is_empty() => {
+        // shouldn't happen since some key are necessary, e.g. "last updated", "summary", ...
+        let _ = out_for_replies.send(Reply(format!("{request_id} RESULT\n"))).await;
+      }
       Ok(data) => {
         let _ = out_for_replies.send(Reply(format!("{request_id} RESULT {data}\n"))).await;
       }
@@ -77,6 +81,10 @@ pub(crate) async fn serve_fetch_ticket_key_value_fields(config: Config,
     let new_data = get_ticket_key_value_list(issue_key, db_conn).await;
     match (&new_data, &old_data) {
       (Ok(new_data), Ok(old_data)) if new_data == old_data => {}
+      (Ok(new_data), _) if new_data.is_empty() => {
+        // shouldn't happen since some key are necessary, e.g. "last updated", "summary", ...
+        let _ = out_for_replies.send(Reply(format!("{request_id} RESULT\n"))).await;
+      }
       (Ok(new_data), _) => {
         let _ = out_for_replies.send(Reply(format!("{request_id} RESULT {new_data}\n"))).await;
       }

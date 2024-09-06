@@ -52,6 +52,9 @@ pub(crate) async fn serve_fetch_attachment_content(request_id: &str,
 
     let old_data = get_attachment_content(uuid, db_conn).await;
     match &old_data {
+      Ok(data) => if data.is_empty() {
+        let _ = out_for_replies.send(Reply(format!("{request_id} RESULT\n"))).await;
+      },
       Ok(data) => {
         let _ = out_for_replies.send(Reply(format!("{request_id} RESULT {data}\n"))).await;
       }
