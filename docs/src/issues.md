@@ -655,7 +655,21 @@ file system except the database.
 ### Difficulty
 Hard
 
+## Security: Sanitise inputs
+### Problem
+Local jira retrieves data from the remote server, and makes a user readable text or html page out of it.
+Unfortunately, the retrieved data is not sanitised. This means, someone could write a text
+with control character in there, or javascript code in it, and when a user would
+display the text in a terminal or the display the page in a web browser, end up executing
+code.
 
+### Solution
+When using text from the local database to create a text or html page, sanitise the data first.
+Another solution is to sanitise the data before writing it in the database, but then we might
+need to duplicate the data for each possible output.
+
+### Difficulty
+Medium-Hard
 
 ## Fix possible API rate limit triggered on first synchronisation
 ### Problem
