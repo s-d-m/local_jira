@@ -279,7 +279,6 @@ async fn get_issues_and_links_that_need_updating(
 
 async fn update_given_project_in_db(config: Config, project_key: String, mut db_conn: Pool<Sqlite>) {
     let issues_and_links_to_update = get_issues_and_links_that_need_updating(project_key.as_str(), &config, &db_conn).await;
-    let mut db_handle = db_conn.clone();
 
     if let Ok(issues_and_links_to_update) = issues_and_links_to_update {
         // First insert all issues in the db, and then insert the links between issues.
@@ -348,7 +347,7 @@ async fn update_given_project_in_db(config: Config, project_key: String, mut db_
     }
 }
 
-pub(crate) async fn update_interesting_projects_in_db(config: &Config, db_conn: &mut Pool<Sqlite>) {
+pub(crate) async fn update_interesting_projects_in_db(config: &Config, db_conn: &Pool<Sqlite>) {
     let interesting_projects = config.interesting_projects();
 
     let mut tasks = interesting_projects

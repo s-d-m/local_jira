@@ -1,6 +1,6 @@
 use crate::get_config::Config;
 use crate::get_json_from_url::get_json_from_url;
-use crate::manage_field_table::Field;
+use crate::manage_field_table::FieldMetadata;
 use crate::manage_interesting_projects::Issue;
 use sqlx::sqlite::SqliteQueryResult;
 use sqlx::types::JsonValue;

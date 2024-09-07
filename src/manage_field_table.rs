@@ -7,20 +7,21 @@ use crate::get_str_for_key;
 use crate::utils::{get_inputs_in_db_not_in_remote, get_inputs_in_remote_not_in_db};
 
 #[derive(FromRow, Debug, Eq, PartialEq, Hash)]
-pub(crate) struct Field {
-  jira_id: String,
-  key: String,
-  human_name: String,
-  schema: String, // json
-  is_custom: bool,
+pub(crate) struct FieldMetadata {
+  pub jira_id: String,
+  pub key: String,
+  pub human_name: String,
+  pub schema: String, // json
+  pub is_custom: bool,
 }
 
-async fn get_fields_from_database(config: &Config, db_conn: &Pool<Sqlite>) -> Vec<Field> {
+pub(crate)
+async fn get_fields_from_database(db_conn: &Pool<Sqlite>) -> Vec<FieldMetadata> {
   let query_str =
     "SELECT  jira_id, key, human_name, schema, is_custom
          FROM Field;";
 
-  let rows = sqlx::query_as::<_, Field>(query_str)
+  let rows = sqlx::query_as::<_, FieldMetadata>(query_str)
     .fetch_all(db_conn)
     .await;
 
@@ -34,7 +35,7 @@ async fn get_fields_from_database(config: &Config, db_conn: &Pool<Sqlite>) -> Ve
 }
 
 
-async fn get_fields_from_server(config: &Config) -> Result<Vec<Field>, String>{
+async fn get_fields_from_server(config: &Config) -> Result<Vec<FieldMetadata>, String>{
   let query = "/rest/api/2/field";
   let json_data = get_json_from_url(config, query).await;
   let Ok(json_data) = json_data else {
@@ -94,7 +95,7 @@ async fn get_fields_from_server(config: &Config) -> Result<Vec<Field>, String>{
         eprintln!("Unexpected data. 'custom' field should be a boolean. It is {custom:?} instead");
         return None;
       };
-      Some(Field {
+      Some(FieldMetadata {
         jira_id: jira_id.to_string(),
         key: key.to_string(),
         human_name: human_name.to_string(),
@@ -108,15 +109,15 @@ async fn get_fields_from_server(config: &Config) -> Result<Vec<Field>, String>{
 }
 
 
-fn get_fields_in_remote_not_in_db<'a, 'b>(fields: &'a Vec<Field>, fields_in_db: &'b Vec<Field>)
-                                          -> Vec<&'a Field>
+fn get_fields_in_remote_not_in_db<'a, 'b>(fields: &'a Vec<FieldMetadata>, fields_in_db: &'b Vec<FieldMetadata>)
+                                          -> Vec<&'a FieldMetadata>
   where 'b: 'a
 {
   get_inputs_in_remote_not_in_db(fields.as_slice(), fields_in_db.as_slice())
 }
 
-fn get_fields_in_db_not_in_remote<'a, 'b>(fields_in_remote: &'a Vec<Field>, fields_in_db: &'b Vec<Field>)
-                                          -> Vec<&'a Field>
+fn get_fields_in_db_not_in_remote<'a, 'b>(fields_in_remote: &'a Vec<FieldMetadata>, fields_in_db: &'b Vec<FieldMetadata>)
+                                          -> Vec<&'a FieldMetadata>
 where 'b: 'a
 {
   get_inputs_in_db_not_in_remote(fields_in_remote.as_slice(), fields_in_db.as_slice())
@@ -133,7 +134,7 @@ async fn update_fields_in_db(config: &Config, db_conn: &mut Pool<Sqlite>) {
     }
   };
 //  dbg!(&fields_to_insert);
-  let fields_in_db = get_fields_from_database(&config, &db_conn).await;
+  let fields_in_db = get_fields_from_database(&db_conn).await;
   let fields_to_insert = get_fields_in_remote_not_in_db(&fields_in_remote, &fields_in_db);
   let fields_to_remove = get_fields_in_db_not_in_remote(&fields_in_remote, &fields_in_db);
 //  dbg!(&fields_in_db);
@@ -152,7 +153,7 @@ async fn update_fields_in_db(config: &Config, db_conn: &mut Pool<Sqlite>) {
         .await
         .expect("Error when starting a sql transaction");
 
-      for Field{ jira_id, key, human_name, schema, is_custom } in fields_to_remove
+      for FieldMetadata { jira_id, key, human_name, schema, is_custom } in fields_to_remove
       {
         let res = sqlx::query(query_str)
           .bind(jira_id)
@@ -204,7 +205,7 @@ async fn update_fields_in_db(config: &Config, db_conn: &mut Pool<Sqlite>) {
                        is_custom = excluded.is_custom,
                        key = excluded.key";
 
-      for Field { jira_id, key, human_name, schema, is_custom } in fields_to_insert {
+      for FieldMetadata { jira_id, key, human_name, schema, is_custom } in fields_to_insert {
         let res = sqlx::query(query_str)
           .bind(jira_id)
           .bind(key)

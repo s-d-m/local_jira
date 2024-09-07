@@ -17,7 +17,7 @@ use std::io::Read;
 use std::num::ParseIntError;
 use crate::find_issues_that_need_updating::issue_data;
 
-async fn get_one_json(config: &Config, issue_key: &str) -> Result<JsonValue, String> {
+pub(crate) async fn get_json_for_issue(config: &Config, issue_key: &str) -> Result<JsonValue, String> {
     let query = format!("/rest/api/3/issue/{issue_key}");
     let json_data = get_json_from_url(config, query.as_str()).await;
     let Ok(json_data) = json_data else {
@@ -655,9 +655,9 @@ async fn download_attachments_for_missing_content(
 pub(crate) async fn add_details_to_issue_in_db(
     config: &Config,
     issue_key: &str,
-    db_conn: &mut Pool<Sqlite>,
+    db_conn: &Pool<Sqlite>,
 ) {
-    let json = get_one_json(&config, issue_key).await;
+    let json = get_json_for_issue(&config, issue_key).await;
     let Ok(json) = json else {
         eprintln!("{}\n", json.err().unwrap());
         return;
