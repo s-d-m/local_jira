@@ -461,14 +461,20 @@ async fn server_request_loop(config: &Config, db_conn: &Pool<Sqlite>) {
   eprintln!("Ready to accept requests");
 
   while !reply_receiver.is_closed() {
-    while let Ok(req) = request_on_stdin_receiver.try_recv() {
-      let _ = request_to_processor_sender.try_send(req);
+    tokio::select! {
+      req = request_on_stdin_receiver.recv() => {
+        match req {
+          None => {},
+          Some(req) => { let _ = request_to_processor_sender.try_send(req); }
+        }
+      },
+      reply = reply_receiver.recv() => {
+        match reply {
+          None => {},
+          Some(reply) => { print!("{}", reply.0) }
+        }
+      }
     }
-
-    while let Ok(reply) = reply_receiver.try_recv() {
-      print!("{}", reply.0)
-    }
-    tokio::time::sleep(Duration::from_millis(50)).await;
   }
 
   if !reply_receiver.is_empty() {
