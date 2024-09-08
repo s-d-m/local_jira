@@ -138,6 +138,9 @@ fn are_attachment_names_equal(param1: &[attachment_name_in_db], param2: &[attach
     return false;
   }
 
+  // numbers of attachments per tickets should be low enough that the
+  // quadratic algorithm beats the one using hash tables.
+  // todo: ensure that or add another code paths decided by the number or attachments
   let is_elt_in_list = |elt: &attachment_name_in_db, list: &[attachment_name_in_db]| {
     let res = list
       .iter()
