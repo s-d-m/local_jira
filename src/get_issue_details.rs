@@ -13,6 +13,7 @@ use sqlx::sqlite::SqliteRow;
 use sqlx::types::JsonValue;
 use sqlx::{Error, FromRow, Pool, Sqlite};
 use std::collections::HashSet;
+use std::fmt::format;
 use std::io::Read;
 use std::num::ParseIntError;
 use crate::find_issues_that_need_updating::issue_data;
@@ -247,11 +248,94 @@ struct AttachmentValue {
 }
 
 #[derive(Debug)]
-struct IssueAttachment {
-    attachment_id: i64,
-    filename: String,
-    mime_type: String,
-    size: Option<i64>,
+pub(crate) struct IssueAttachment {
+    pub attachment_id: i64,
+    pub filename: String,
+    pub mime_type: String,
+    pub size: Option<i64>,
+}
+
+pub(crate)
+async fn get_ticket_attachment_list_from_json(
+    issue_key: &str,
+    config: &Config
+) -> Result<Vec<IssueAttachment>, String> {
+    let json_data = get_json_for_issue(config, issue_key).await;
+    let json_data = match json_data {
+        Ok(v) => {v}
+        Err(e) => {
+            return Err(format!("Error occurred while downloading json for issue {issue_key} in order to get the attachments list"));
+        }
+    };
+    let attachments = json_data
+      .as_object()
+      .and_then(|x| x.get("fields"))
+      .and_then(|x| x.as_object())
+      .and_then(|x| x.get("attachment"))
+      .and_then(|x| x.as_array());
+    let attachments = match attachments {
+        None => {
+            return Err(format!("Couldn't extract attachments from the returned json for issue {issue_key}"));
+        }
+        Some(v) => {v}
+    };
+    let nr_elts_in_array = attachments.len();
+    let attachments = attachments
+      .into_iter()
+      .filter_map(|x| x.as_object())
+      .collect::<Vec<_>>();
+    let nr_objects_in_array = attachments.len();
+    let are_all_objects = nr_objects_in_array == nr_elts_in_array;
+    if !are_all_objects {
+        return Err(format!("Invalid json found. Attachment should only contain objects. But at least one elements of {issue_key}'s attachment isn't"));
+    };
+
+    let attachments = attachments
+      .into_iter()
+      .filter_map(|x| {
+          let attachment_id = x
+            .get("id")
+            .and_then(|x| x.as_str())
+            .and_then(|x| match x.parse::<i64>() {
+                Ok(v) => {Some(v)}
+                Err(e) => {
+                    eprint!("Failed to extract an id. Parsing string to int failed with Err={e:?}");
+                    None
+                }
+            });
+          let filename = x
+            .get("filename")
+            .and_then(|x| x.as_str());
+          let mime_type = x
+            .get("mimeType")
+            .and_then(|x| x.as_str());
+          let size = x
+            .get("size")
+            .and_then(|x| x.as_i64());
+
+          match (attachment_id, filename, mime_type) {
+              (None, _, _) | (_, None, _) | (_, _, None) => {
+                  eprintln!("one of the attachment in the json file for issue {issue_key} is missing at least one of id, filename or mimetype. x is [{x:?}]");
+                  None
+              },
+              (Some(attachment_id), Some(filename), Some(mime_type)) => {
+                  Some(IssueAttachment {
+                      attachment_id,
+                      filename: filename.to_string(),
+                      mime_type: mime_type.to_string(),
+                      size,
+                  })
+              }
+          }
+      })
+      .collect::<Vec<_>>();
+
+    let nr_attachments = attachments.len();
+    if nr_attachments != nr_objects_in_array {
+        return Err(format!("Some object in the attachment array for issue {issue_key} does not lead to valid attachment data"));
+    };
+
+    Ok(attachments)
 }
 
 async fn get_attachments_in_db_for_issue(

@@ -758,10 +758,12 @@ pub(crate) async fn serve_fetch_ticket_request(config: Config,
             // shouldn't happen since get_jira_ticket should at least give back the issue id
             // in the reply
             let _ = out_for_replies.send(Reply(format!("{request_id} RESULT\n"))).await;
+            // todo spawn an update_interesting_projects_in_db in background as we know some data is out of data
           },
           (Ok(newest_data), _) => {
             let data = base64::engine::general_purpose::STANDARD.encode(newest_data.as_bytes());
             let _ = out_for_replies.send(Reply(format!("{request_id} RESULT {data}\n"))).await;
+            // todo spawn an update_interesting_projects_in_db in background as we know some data is out of data
           },
           (Err(e), _) => {
             let _ = out_for_replies.send(Reply(format!("{request_id} ERROR failed to get data from remote to see if local data is up to date or note: Err {e:?}\n"))).await;
