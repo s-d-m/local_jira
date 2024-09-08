@@ -746,7 +746,7 @@ According to [the jql page](https://support.atlassian.com/jira-service-managemen
 updated field uses the project's configuration timezone.
 
 ### Difficulty
-Medium
+Medium-Hard
 
 
 ## Performance: download fewer data
@@ -886,3 +886,43 @@ of that one ticket.
 
 ### Difficulty
 Hard (there might some interference here with the update_all algorithm)
+
+## Allow for starting background tasks from user-triggered requests
+### Problem
+Some requests might be able to return the latest data requested by a user
+quickly, but finish the request slowly. For example, the FETCH_TICKET request
+only need one request to the server to create the content a user requested
+with the latest data. However, it can be found during that request, that
+some data is out of date (e.g. the summary of linked tickets are out of
+data in the database, are some links were inserted or removed). If that is
+the case, a database update is triggered and the initial FETCH_TICKET is
+still on-going in the system. This can be an issue if a user wants to
+stop the server after the requests are executed since it makes for waiting
+longer than necessary.
+
+### Solution
+Allow for requests to trigger background tasks that will outlive the request
+itself.
+
+### Difficulty
+Hard
+
+
+## Avoid several update request at the same time
+### Problem
+Due to the asynchronicity of the requests execution, it is possible
+and easy to trigger several database updates to execute at the exact
+same time. This leads to using more resource than necessary. This
+can also lead to triggering the API rate limit.
+
+### Solution
+When starting a database update, set a global flag to signal it is
+ongoing and clear it when finished. When a new database update is triggered,
+the request handler can then check if an update is already on-going or not.
+In the case it is already ongoing, it can then simply wait for the first
+to finish before saying the second update finished too.
+Another solution would be to wait for the first one to finish before
+starting the second one.
+
+### Difficulty
+Hard
