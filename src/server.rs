@@ -15,6 +15,7 @@ use crate::manage_interesting_projects::initialise_interesting_projects_in_db;
 use crate::manage_issuelinktype_table::update_issue_link_types_in_db;
 use crate::manage_issuetype_table::update_issue_types_in_db;
 use crate::manage_project_table::update_project_list_in_db;
+use crate::server::RequestKind::Push_error_message;
 use crate::srv_fetch_attachment_content::serve_fetch_attachment_content;
 use crate::srv_fetch_attachment_list_for_ticket::serve_fetch_ticket_attachment_list;
 use crate::srv_fetch_ticket::serve_fetch_ticket_request;
@@ -37,6 +38,7 @@ enum RequestKind {
   Synchronise_All,
   Exit_Server_After_Requests,
   Exit_Server_Now,
+  Push_error_message(String),
 }
 
 struct Request {
@@ -229,8 +231,7 @@ impl Request {
           }
         }
       }
-      _ => Err(String::from("invalid request, unknown command"))
-
+      _ => Err(format!("invalid request, unknown command [{command}]"))
     }
   }
 }
@@ -263,6 +264,14 @@ async fn serve_request(config: Config, request: Request, out_for_replies: tokio:
     }
     RequestKind::Exit_Server_After_Requests => { return }
     RequestKind::Exit_Server_Now => { return }
+    RequestKind::Push_error_message(s) => {
+      let err_msg = if s.is_empty() {
+        format!("{request_id} ERROR\n")
+      } else {
+        format!("{request_id} ERROR {s}\n")
+      };
+      let _ = out_for_replies.send(Reply(err_msg)).await;
+    }
   }
 }
 
@@ -292,7 +301,7 @@ async fn process_events(config: Config,
             exit_immediately_requested = true;
             let _ = out_for_replies.try_send(Reply(format!("{id} ACK\n", id = request.request_id)));
             id_of_exit_immediate_request = request.request_id;
-          }
+          },
           _ => {
             handles.spawn(serve_request(config.clone(), request, out_for_replies.clone(), db_conn.clone()));
           }
@@ -370,14 +379,18 @@ fn stdin_to_request(request_queue: tokio::sync::mpsc::Sender<Request>) {
 
     if !without_suffix.is_empty() {
       let request = Request::from(without_suffix);
-      match request {
-        Ok(request) => {
-          let _ = request_queue.blocking_send(request);
-        }
+      let request = match request {
+        Ok(v) => { v }
         Err(e) => {
-          eprintln!("Failed to get a request out of [{without_suffix}]: Err: {e}")
+          let request_kind = Push_error_message(format!("Failed to get a request out of [{without_suffix}]: Err: {e}"));
+          let request = Request {
+            request_id: String::from("_"),
+            request_kind
+          };
+          request
         }
-      }
+      };
+      let _ = request_queue.blocking_send(request);
     }
   }
 }
