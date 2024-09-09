@@ -336,7 +336,7 @@ async fn update_given_project_in_db(config: Config, project_key: String, mut db_
         // now get the full data for each issue.
         let issues_keys = issues_to_upsert
           .iter()
-          .map(|x| x.project_key.as_str())
+          .map(|x| x.key.as_str())
           .collect::<Vec<_>>();
 
         for key in issues_keys {
