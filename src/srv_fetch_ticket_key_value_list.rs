@@ -199,6 +199,7 @@ pub(crate) async fn serve_fetch_ticket_key_value_fields(config: Config,
             } else {
               let _ = out_for_replies.send(Reply(format!("{request_id} RESULT {base_64_encoded}\n"))).await;
             }
+            // todo: launch a background synchronisation since we know things changed
           }
           (Err(e), _) => {
             let _ = out_for_replies.send(Reply(format!("{request_id} ERROR {e}\n"))).await;

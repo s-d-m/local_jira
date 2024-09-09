@@ -34,7 +34,12 @@ pub(crate) async fn serve_synchronise_ticket(config: Config,
     // ticket is guaranteed to be up to date.
     let mut db_conn = db_conn;
     update_interesting_projects_in_db(&config, &mut db_conn).await;
-    add_details_to_issue_in_db(&config, issue_key, &mut db_conn).await;
+
+    //Ideally we would simply call add_details_to_issue_in_db, but the function update_interesting_projects_in_db
+    // relies on tickets not being updated alone in order to find out which ticket to update and which not.
+    // when running the synchronise_updated request.
+    //
+    //    add_details_to_issue_in_db(&config, issue_key, &mut db_conn).await;
   }
 
   let _ = out_for_replies.send(Reply(format!("{request_id} FINISHED\n"))).await;

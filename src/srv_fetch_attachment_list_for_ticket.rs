@@ -109,6 +109,13 @@ async fn add_uuid_to_names(attachment_list: &[IssueAttachment], issue_key: &str,
 }
 
 async fn get_ticket_attachments_uuid_and_name_from_remote(issue_key: &str, config: &Config, db_conn: &Pool<Sqlite>) -> Result<Vec<attachment_name_in_db>, String> {
+  // todo: start a db update here, and either
+  //   1. cancel it if the first with uuid works.
+  //   2. await it at the update_interesting_project_in_db await point below
+  // This would make this query about 1s faster to finish in the case where the
+  // update db would have been triggered (1s is about the time to retrieve the ticket's json)
+  // and not negatively impact much the other cases.
+
   let attachment_list = get_ticket_attachment_list_from_json(issue_key, config).await;
   let attachment_list = match attachment_list {
     Ok(v) => {v}
@@ -119,7 +126,9 @@ async fn get_ticket_attachments_uuid_and_name_from_remote(issue_key: &str, confi
                                     issue_key, db_conn).await;
 
   match with_uuid {
-    Ok(v) => {return Ok(v)}
+    Ok(v) => {
+      return Ok(v)
+    }
     Err(e) => {
       eprintln!("{e}\nTriggering a database update now to see if those issues fix themselves and retry");
     }
