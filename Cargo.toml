@@ -17,6 +17,9 @@ html2text = "0.12.5"
 tempfile = "3.10.1"
 dirs = "5.0.1"
 
+# put libc back when the detection for closed stdin works again
+#libc = "0.2.153"
+
 [build]
 rustflags = ["-C", "target-cpu=native", "-C", "link-arg=-fuse-ld=mold"]
 

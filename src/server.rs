@@ -1,7 +1,7 @@
-use std::{io, sync};
+use std::{io, sync, thread};
 use std::fmt::format;
 use std::io::{Read, read_to_string};
-use std::ptr::read;
+use std::ptr::{addr_of_mut, read};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::time::Duration;
 
@@ -359,10 +359,38 @@ async fn process_events(config: Config,
   drop(out_for_replies);
 }
 
+fn is_stdin_closed() -> bool {
+  // checking if stdin is closed is based on this answer:
+  // https://unix.stackexchange.com/a/626425
+  //
+  // unfortunately this doesn't work because of earlier calls to openat
+  // see https://github.com/rust-lang/libc/issues/3907 for details
+  // might as well return false directly.
+  // The issue here is that if stdin is closed, the server can't do
+  // anything useful and should quit. Instead, it takes 100% CPU when
+  // that happens. :-(
+  false
+
+  /*
+  let mut pollfds_input = libc::pollfd {
+    fd: 0, // stdin
+    events: 0,
+    revents: libc::POLLHUP,
+  };
+  let pollfds_input_ptr = addr_of_mut!(pollfds_input);
+
+  let poll_res = unsafe {
+     libc::poll( pollfds_input_ptr, 1, 0)
+  };
+  let is_stdin_closed = poll_res > 0;
+  is_stdin_closed
+  */
+}
+
 fn stdin_to_request(request_queue: tokio::sync::mpsc::Sender<Request>) {
   let mut stdin_input: String = Default::default();
 
-  while !request_queue.is_closed() {
+  while (!request_queue.is_closed()) && (!is_stdin_closed()) {
     // When changing code here, make sure that a request to exit the server doesn't require
     // the user to first type enter a second time for the request to be processed. This can
     // easily happen when the blocking call to read from stdin is done on the same thread
@@ -370,28 +398,64 @@ fn stdin_to_request(request_queue: tokio::sync::mpsc::Sender<Request>) {
     // tokio thread)
 
     stdin_input.clear();
-      let _ = io::stdin().read_line(&mut stdin_input);
-      let without_suffix = stdin_input.strip_suffix('\n');
-      let without_suffix = match without_suffix {
-        None => { stdin_input.as_str() }
-        Some(data) => {data}
-      };
+    let read_line_ret = io::stdin().read_line(&mut stdin_input);
+    match read_line_ret {
+      Ok(0) => {
+        // workaround for not being able to detect closed stdin. In case stdin is
+        // closed, ideally the server would gracefully shutdown. Unfortunately
+        // detecting if stdin is closed or not doesn't work at the moment.
+        // When stdin is closed, read_line returns immediately saying it read 0 bytes.
+        // This leads to this loop becoming a busy loop and the program starts taking
+        // up 100% CPU.
+        // However, read_line can also return Ok(0) with stdin still being open,
+        // namely when a user sends an EOF (ctrl+D on the terminal). Therefore, we
+        // can't just rely on receiving Ok(0) to detect closed stdin.
+        // One way to deal with this would be to change the communication protocol
+        // and say receiving an EOF is similar to an exit-after-requests request.
+        // There might however be genuine situation where EOF can be received and
+        // thus this isn't a feasible situation.
+        // Another possibility would be to check the rate of receiving Ok(0). If we
+        // are receiving say 1000 consecutive Ok(0) in less than 0.5 seconds, chances
+        // are that stdin is closed and not that someone is flooding the server
+        // with EOF. However, here we will keep things simple and just sleep a bit to
+        // avoid busy looping.
+        thread::sleep(Duration::from_millis(50));
+      }
+      Ok(_) => {
+        let without_suffix = stdin_input.strip_suffix('\n');
+        let without_suffix = match without_suffix {
+          None => { stdin_input.as_str() }
+          Some(data) => { data }
+        };
 
-    if !without_suffix.is_empty() {
-      let request = Request::from(without_suffix);
-      let request = match request {
-        Ok(v) => { v }
-        Err(e) => {
-          let request_kind = Push_error_message(format!("Failed to get a request out of [{without_suffix}]: Err: {e}"));
-          let request = Request {
-            request_id: String::from("_"),
-            request_kind
+        if !without_suffix.is_empty() {
+          let request = Request::from(without_suffix);
+          let request = match request {
+            Ok(v) => { v }
+            Err(e) => {
+              let request_kind = Push_error_message(format!("Failed to get a request out of [{without_suffix}]: Err: {e}"));
+              let request = Request {
+                request_id: String::from("_"),
+                request_kind
+              };
+              request
+            }
           };
-          request
+          let _ = request_queue.blocking_send(request);
         }
-      };
-      let _ = request_queue.blocking_send(request);
+      }
+      Err(e) => {
+        println!("Failed to read line from stdin: {e:?}")
+      }
     }
+  }
+
+  if (is_stdin_closed()) && (!request_queue.is_closed()) {
+    let request = Request {
+      request_id: "_exit-after-requests-due-to-closed-stdin".to_string(),
+      request_kind: RequestKind::Exit_Server_After_Requests
+    };
+    let _ = request_queue.blocking_send(request);
   }
 }
 
