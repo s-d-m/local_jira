@@ -356,8 +356,8 @@ introduce a bug during development, that makes the server wait forever instead o
 down. To help signalling the client about the server's state, the server will try to return
 a FINISHED message right before quitting.
 
-It is possible (and likely) that the server quits before this message is sent, therefore
-a client shouldn't assume that the server is running until this message is sent.
+It is possible that the server quits before this message is sent, therefore a client
+shouldn't assume that the server is running until this message is sent.
 Instead, a client should use the system's job processing tools (e.g. `ps`) to see if the
 server is still running.
 
