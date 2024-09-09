@@ -37,7 +37,7 @@ async fn get_properties_from_json(
     let issue_id = get_id(json_data);
     let Some(issue_id) = issue_id else {
         return Err(format!(
-            "error: the json data for {issue_key} does not contain an \"id\" fields"
+            "error: while trying to get properties from json data. Json for {issue_key} does not contain an \"id\" fields"
         ));
     };
 
