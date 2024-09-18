@@ -196,7 +196,7 @@ r###"<!DOCTYPE html>
   <head>
     <meta charset="UTF-8">
     <title>add a build/test request</title>
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none';">
+<!--    <meta http-equiv="Content-Security-Policy" content="default-src 'unsafe-inline';"> -->
     <link rel="icon" href="data:,">
   </head>
   <body>
