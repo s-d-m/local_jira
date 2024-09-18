@@ -154,6 +154,30 @@ fn format_comments_for_html(comments: &[Comment], db_conn: &Pool<Sqlite>) -> Str
   comments
 }
 
+fn get_summary<'a>(hashed_system_fields: &HashMap<&str, &'a Field>) -> &'a str {
+  let summary = hashed_system_fields.get("Summary")
+    .and_then(|x| x.value.as_str())
+    .unwrap_or("no summary provided");
+
+  summary
+}
+
+fn get_markdown_description(hashed_system_fields: &HashMap<&str, &Field>) -> String {
+  let description = hashed_system_fields.get("Description")
+    .and_then(|x| Some(root_elt_doc_to_string(&x.value)))
+    .unwrap_or(String::from("no description provided"));
+
+  description
+}
+
+fn get_html_description(hashed_system_fields: &HashMap<&str, &Field>, db_conn: &Pool<Sqlite>) -> String {
+  let description = hashed_system_fields.get("Description")
+    .and_then(|x| Some(root_elt_doc_to_html_string(&x.value, &db_conn)))
+    .unwrap_or(String::from("no description provided"));
+
+  description
+}
+
 fn format_ticket_for_html(issue_key: &str,
                           system_fields: &[Field],
                           custom_fields: &[Field],
@@ -167,18 +191,8 @@ fn format_ticket_for_html(issue_key: &str,
     .map(|x| (x.name.as_str(), x))
     .collect::<HashMap<_, &Field>>();
 
-  let summary = hashed_system_fields.get("Summary")
-    .and_then(|x| x.value.as_str());
-
-  let Some(summary) = summary else {
-    return Err(format!("Error retrieving the summary for ticket {issue_key}"))
-  };
-
-  let description = hashed_system_fields.get("Description")
-    .and_then(|x| Some(root_elt_doc_to_html_string(&x.value, &db_conn)));
-  let Some(description) = description else {
-    return Err(format!("Error retrieving the description for ticket {issue_key}"))
-  };
+  let summary = get_summary(&hashed_system_fields);
+  let description = get_html_description(&hashed_system_fields, db_conn);
 
   let links_str = format_links_for_html(inward_links.as_ref(),
                                         outward_links.as_ref());
@@ -272,18 +286,8 @@ fn format_ticket_for_markdown(issue_key: &str,
     .map(|x| (x.name.as_str(), x))
     .collect::<HashMap<_, &Field>>();
 
-  let summary = hashed_system_fields.get("Summary")
-    .and_then(|x| x.value.as_str());
-
-  let Some(summary) = summary else {
-    return Err(format!("Error retrieving the summary for ticket {issue_key}"))
-  };
-
-  let description = hashed_system_fields.get("Description")
-    .and_then(|x| Some(root_elt_doc_to_string(&x.value)));
-  let Some(description) = description else {
-    return Err(format!("Error retrieving the description for ticket {issue_key}"))
-  };
+  let summary = get_summary(&hashed_system_fields);
+  let description = get_markdown_description(&hashed_system_fields);
 
   let comments = format_comments_for_markdown(comments.as_ref());
   let links_str = format_links_for_markdown(inward_links.as_ref(), outward_links.as_ref());
