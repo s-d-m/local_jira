@@ -445,7 +445,7 @@ fn stdin_to_request(request_queue: tokio::sync::mpsc::Sender<Request>) {
         }
       }
       Err(e) => {
-        println!("Failed to read line from stdin: {e:?}")
+        eprintln!("Failed to read line from stdin: {e:?}")
       }
     }
   }
@@ -459,10 +459,7 @@ fn stdin_to_request(request_queue: tokio::sync::mpsc::Sender<Request>) {
   }
 }
 
-async fn background_jira_schema_update(config: Config, mut db_conn: Pool<Sqlite>) {
-  let wait_before_loop_iteration = Duration::from_secs(300);
-
-  loop {
+async fn update_jira_schema(config: &Config, db_conn: &Pool<Sqlite>) {
     let mut db_issue_type_handle = &mut db_conn.clone();
     let mut db_fields_handle = &mut db_conn.clone();
     let mut db_link_types_handles = &mut db_conn.clone();
@@ -474,15 +471,13 @@ async fn background_jira_schema_update(config: Config, mut db_conn: Pool<Sqlite>
             update_issue_link_types_in_db(&config, &mut db_link_types_handles),
             update_project_list_in_db(&config, &mut db_project_list_handle)
     );
-
-    tokio::time::sleep(wait_before_loop_iteration).await;
-  }
 }
 
 async fn background_project_update(config: Config, mut db_conn: Pool<Sqlite>) {
   let wait_before_loop_iteration = Duration::from_secs(90);
 
   loop {
+    update_jira_schema(&config, &db_conn).await;
     update_interesting_projects_in_db(&config, &mut db_conn).await;
     tokio::time::sleep(wait_before_loop_iteration).await;
   }
@@ -492,6 +487,7 @@ async fn background_full_initialise_project(config: Config, mut db_conn: Pool<Sq
   let wait_before_loop_iteration = Duration::from_secs(7200);
 
   loop {
+    update_jira_schema(&config, &db_conn).await;
     initialise_interesting_projects_in_db(&config, &mut db_conn).await;
     tokio::time::sleep(wait_before_loop_iteration).await;
   }
@@ -500,10 +496,8 @@ async fn background_full_initialise_project(config: Config, mut db_conn: Pool<Sq
 async fn background_tasks(config: Config, mut db_conn: Pool<Sqlite>) {
   let full_initialise_project = tokio::spawn(background_full_initialise_project(config.clone(), db_conn.clone()));
   let project_update_handle = tokio::spawn(background_project_update(config.clone(), db_conn.clone()));
-  let jira_schema_update = tokio::spawn(background_jira_schema_update(config.clone(), db_conn.clone()));
 
   let _ = project_update_handle.await;
-  let _ = jira_schema_update.await;
   let _ = full_initialise_project.await;
 }
 
