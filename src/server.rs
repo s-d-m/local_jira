@@ -389,6 +389,7 @@ fn is_stdin_closed() -> bool {
 
 fn stdin_to_request(request_queue: tokio::sync::mpsc::Sender<Request>) {
   let mut stdin_input: String = Default::default();
+  let mut nag_user_about_blocking_stdin = true;
 
   while (!request_queue.is_closed()) && (!is_stdin_closed()) {
     // When changing code here, make sure that a request to exit the server doesn't require
@@ -445,7 +446,17 @@ fn stdin_to_request(request_queue: tokio::sync::mpsc::Sender<Request>) {
         }
       }
       Err(e) => {
-        eprintln!("Failed to read line from stdin: {e:?}")
+        if e.kind() == ErrorKind::WouldBlock  {
+          if nag_user_about_blocking_stdin {
+            nag_user_about_blocking_stdin = false;
+            eprintln!("Warning: stdin of server is nonblocking. Server will go into degraded performance mode. Use a blocking stdin for max efficiency");
+            // todo call fcntl to change stdin to blocking automatically, and don't nag the user
+          }
+          // sleep to avoid busy looping
+          thread::sleep(Duration::from_millis(20));
+        } else {
+          eprintln!("Failed to read line from stdin: {e:?}")
+        }
       }
     }
   }
