@@ -1,6 +1,6 @@
 use std::{io, sync, thread};
 use std::fmt::format;
-use std::io::{Read, read_to_string};
+use std::io::{ErrorKind, Read, read_to_string};
 use std::ptr::{addr_of_mut, read};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::time::Duration;
