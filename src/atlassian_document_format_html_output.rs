@@ -1017,10 +1017,6 @@ fn media_to_html_string(media: &Map<String, Value>, db_conn: &Pool<Sqlite>) -> S
       };
 
       let text = match mime_type {
-        mime_type if mime_type.starts_with("image/svg") => {
-          // todo: validate that the svg image is valid svg
-          String::from_utf8_lossy(file_data.data.as_slice()).to_string()
-        }
         mime_type if mime_type.starts_with("image/") => {
           let mime_type = html_escape::encode_safe(mime_type.as_str());
           format!("<img{width}{height} src=\"data:{mime_type};base64,{base64_data}\">")
