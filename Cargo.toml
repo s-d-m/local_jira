@@ -16,6 +16,7 @@ log = "0.4.21"
 html2text = "0.12.5"
 tempfile = "3.10.1"
 dirs = "5.0.1"
+html-escape = "0.2.13"
 
 # put libc back when the detection for closed stdin works again
 #libc = "0.2.153"

@@ -19,7 +19,8 @@ fn json_map_to_html_string(json: &Map<String, Value>) -> String {
     Err(e) => { tmp }
   };
 
-  let text = indent_with(text.as_str(), "  ");
+  let text = html_escape::encode_safe(text.as_str());
+  let text = indent_with(text.as_ref(), "  ");
 
   let content = format!(
 "<pre><code class=\"json_data\">
@@ -28,9 +29,19 @@ fn json_map_to_html_string(json: &Map<String, Value>) -> String {
   content
 }
 
+fn string_to_sanitised_inline(input: &str) -> StringWithNodeLevel {
+  let sanitised = html_escape::encode_safe(input);
+  to_inline(sanitised.to_string())
+}
+
+fn string_to_sanitised_top_level(input: &str) -> StringWithNodeLevel {
+  let content = html_escape::encode_safe(input);
+  to_top_level(content.to_string())
+}
+
 fn json_to_toplevel_html_string(json: &Map<String, Value>) -> StringWithNodeLevel {
   let content = json_map_to_html_string(json);
-  to_top_level(content)
+  string_to_sanitised_top_level(content.as_str())
 }
 
 fn get_content_subobject_as_vec_html_string(
@@ -50,13 +61,7 @@ fn get_content_subobject_as_vec_html_string(
 
   let res = match res {
     None => { Err(json_map_to_html_string(json)) }
-    Some(x) => {
-      let mut resolved_futures = Vec::new();
-      for f in x {
-        resolved_futures.push(f);
-      }
-      Ok(resolved_futures)
-    }
+    Some(x) => { Ok(x) }
   };
   res
 }
@@ -73,6 +78,7 @@ fn codeblock_to_html_string(json: &Map<String, Value>, db_conn: &Pool<Sqlite>) -
     .and_then(|x| x.as_object())
     .and_then(|x| x.get("language"))
     .and_then(|x| x.as_str())
+    .and_then(|x| Some(html_escape::encode_safe(x)))
     .unwrap_or_default();
 
   let inner_content = indent_with(inner_content.text.as_str(), "  ");
@@ -98,6 +104,7 @@ fn emoji_to_html_string(json: &Map<String, Value>) -> StringWithNodeLevel {
         x.get("shortName").and_then(|x| x.as_str())
       }
     })
+    .and_then(|x| Some(html_escape::encode_safe(x)))
     .unwrap_or_default();
 
   let res = String::from(attrs);
@@ -129,7 +136,12 @@ fn blockquote_to_html_string(json: &Map<String, Value>, db_conn: &Pool<Sqlite>) 
 fn list_item_to_html_string(json: &Map<String, Value>, db_conn: &Pool<Sqlite>) -> StringWithNodeLevel {
   let inner_content =
     get_content_subobject_as_vec_html_string(json, db_conn)
-      .unwrap_or_else(|value| vec![to_top_level(value)]);
+      .unwrap_or_else(|value| {
+        //let content = string_to_sanitised_inline(value.as_str());
+        let content = value; // when get_content_subobject_as_vec_html_string returns an error, it is a sanitised string
+        // todo: implement new types for sanitised and unsanitised strings.
+        vec![to_inline(content)]
+      });
 
   let content = inner_content
     .into_iter()
@@ -148,6 +160,8 @@ fn bullet_list_to_html_string(json: &Map<String, Value>, db_conn: &Pool<Sqlite>)
   let inner_content = match inner_content {
     Ok(value) => value,
     Err(value) => {
+      // when get_content_subobject_as_vec_html_string returns an error, it is a sanitised string
+      // todo: implement new types for sanitised and unsanitised strings.
       return StringWithNodeLevel {
         text: value,
         node_level: NodeLevel::TopLevel,
@@ -221,6 +235,7 @@ fn get_html_colour_from_mark(colour_kind: &Map<String, Value>) -> Result<String,
     }
   }
 
+  // todo: add support for dark mode
   let res = Ok(String::from(colour));
   res
 }
@@ -275,6 +290,7 @@ fn get_link_mark_kind(link_kind: &Map<String, Value>) -> Result<MarkKind, String
   let to_option_string = |value: Option<&Value>| {
     value
       .and_then(|x| x.as_str())
+      .and_then(|x| Some(html_escape::encode_safe(x)))
       .and_then(|x| Some(x.to_string()))
   };
   let collection = to_option_string(collection);
@@ -282,6 +298,7 @@ fn get_link_mark_kind(link_kind: &Map<String, Value>) -> Result<MarkKind, String
   let occurrenceKey = to_option_string(occurrenceKey);
   let title = to_option_string(title);
 
+  let href = html_escape::encode_safe(href);
   let href = href.to_string();
 
   let res = MarkKind::Link(LinkAttrs {
@@ -300,6 +317,7 @@ fn text_to_html_string(json: &Map<String, Value>) -> StringWithNodeLevel {
   let content = json
     .get("text")
     .and_then(|x| x.as_str())
+    .and_then(|x| Some(html_escape::encode_safe(x)))
     .and_then(|x| Some(x.to_string()))
     .unwrap_or_default();
 
@@ -324,7 +342,8 @@ fn text_to_html_string(json: &Map<String, Value>) -> StringWithNodeLevel {
                 None => {String::from("")}
                 Some(title) => {format!(" title=\"{title}\"")}
               };
-              format!("<a href=\"{url}\"{title}>{content}</a>", url = link_attrs.href)
+              let url = link_attrs.href;
+              format!("<a href=\"{url}\"{title}>{content}</a>")
             }
             MarkKind::Strike => {
               format!("<s>{content}</s>")
@@ -376,6 +395,7 @@ fn paragraph_to_html_string(json: &Map<String, Value>, db_conn: &Pool<Sqlite>) -
     .and_then(serde_json::value::Value::as_object)
     .and_then(|x| x.get("localId"))
     .and_then(serde_json::value::Value::as_str)
+    .and_then(|x| Some(html_escape::encode_safe(x)))
     .unwrap_or_default();
 
   let id_attr = if id.is_empty() {
@@ -455,7 +475,8 @@ fn mention_to_html_string(json: &Map<String, Value>) -> StringWithNodeLevel {
   };
 
   let text = attrs.get("text")
-    .and_then(|x| x.as_str());
+    .and_then(|x| x.as_str())
+    .and_then(|x| Some(html_escape::encode_safe(x)));
 
   if let Some(s) = text {
     return StringWithNodeLevel {
@@ -465,7 +486,8 @@ fn mention_to_html_string(json: &Map<String, Value>) -> StringWithNodeLevel {
   }
 
   let id = attrs.get("id")
-    .and_then(|x| x.as_str());
+    .and_then(|x| x.as_str())
+    .and_then(|x| Some(html_escape::encode_safe(x)));
 
   let content = match id {
     None => json_map_to_html_string(json),
@@ -634,6 +656,7 @@ fn rule_to_html_string(_json: &Map<String, Value>) -> StringWithNodeLevel {
 }
 
 fn to_html_verbatim(val: &str) -> String {
+  let val = html_escape::encode_safe(val);
   format!("<verbatim>{val}</verbatim>")
 }
 
@@ -649,9 +672,10 @@ fn table_cell_to_html_string(json: &Map<String, Value>, db_conn: &Pool<Sqlite>) 
   };
 
   let html_text = array_of_value_to_html_string(content, db_conn);
+  let text = html_text.text;
   let attrs = get_style_str_for_table_cell_and_header(json);
 
-  let res_text = format!("<td{attrs}>{text}</td>", text = html_text.text);
+  let res_text = format!("<td{attrs}>{text}</td>");
   StringWithNodeLevel {
     text: res_text,
     node_level: NodeLevel::TopLevel,
@@ -690,6 +714,7 @@ fn get_style_str_for_table_cell_and_header(json: &Map<String, Value>) -> String 
   let background = attrs
     .and_then(|x| x.get("background"))
     .and_then(|x| x.as_str())
+    .and_then(|x| Some(html_escape::encode_safe(x)))
     .and_then(|x| Some(format!(" style=\"background: {x};\"")))
     .unwrap_or_default();
 
@@ -705,7 +730,7 @@ fn get_style_str_for_table_cell_and_header(json: &Map<String, Value>) -> String 
     .and_then(|x| Some(format!(" rowspan=\"{x}\"")))
     .unwrap_or_default();
 
-  // there os also a colwidth attribute, but doesn't easily map to an html/css attribute
+  // there is also a colwidth attribute, but doesn't easily map to an html/css attribute
   // and requires significantly more work to implement properly. Let's ignore that.
 
   let res = format!("{background}{colspan}{rowspan}");
@@ -723,9 +748,10 @@ fn table_header_to_html_string(json: &Map<String, Value>, db_conn: &Pool<Sqlite>
   };
 
   let html_text = array_of_value_to_html_string(content, db_conn);
+  let text = html_text.text;
   let attrs = get_style_str_for_table_cell_and_header(json);
 
-  let res_text = format!("<th{attrs}>{text}</th>", text = html_text.text);
+  let res_text = format!("<th{attrs}>{text}</th>");
   StringWithNodeLevel {
     text: res_text,
     node_level: NodeLevel::TopLevel,
@@ -765,7 +791,7 @@ fn table_to_html_string(json: &Map<String, Value>, db_conn: &Pool<Sqlite>) -> St
       "align-start" => Some("align-content: flex-start;"),
       "default" | "wide" | "full_width" => {
         // according to https://developer.atlassian.com/cloud/jira/platform/apis/document/nodes/table/
-        // those are deprecated and the widht attribute should be used instead
+        // those are deprecated and the width attribute should be used instead
         // Not relevant to us anyway
         None
       }
@@ -991,9 +1017,11 @@ fn media_to_html_string(media: &Map<String, Value>, db_conn: &Pool<Sqlite>) -> S
 
       let text = match mime_type {
         mime_type if mime_type.starts_with("image/svg") => {
+          // todo: validate that the svg image is valid svg
           String::from_utf8_lossy(file_data.data.as_slice()).to_string()
         }
         mime_type if mime_type.starts_with("image/") => {
+          let mime_type = html_escape::encode_safe(mime_type.as_str());
           format!("<img{width}{height} src=\"data:{mime_type};base64,{base64_data}\">")
         }
         mime_type if mime_type.starts_with("video/") || mime_type.starts_with("audio/") => {
@@ -1003,6 +1031,8 @@ fn media_to_html_string(media: &Map<String, Value>, db_conn: &Pool<Sqlite>) -> S
               return json_to_toplevel_html_string(media)}
             Some(v) => {v}
           };
+          let mime_type = html_escape::encode_safe(mime_type.as_str());
+          let filename = html_escape::encode_safe(filename.as_str());
           let download_html_text = format!("<a href=\"data:{mime_type};base64,{base64_data}\" download=\"{filename}\">{filename}</a>");
           format!(
 "<{tag}{width}{height} controls>
@@ -1011,6 +1041,8 @@ fn media_to_html_string(media: &Map<String, Value>, db_conn: &Pool<Sqlite>) -> S
 </{tag}>")
         }
         _ => {
+          let filename = html_escape::encode_safe(filename.as_str());
+          let mime_type = html_escape::encode_safe(mime_type.as_str());
           let download_html_text = format!("<a href=\"data:{mime_type};base64,{base64_data}\" download=\"{filename}\">{filename}</a>");
           download_html_text
         }
@@ -1021,9 +1053,11 @@ fn media_to_html_string(media: &Map<String, Value>, db_conn: &Pool<Sqlite>) -> S
       let filename_attr = attrs
         .get("alt")
         .and_then(|x| x.as_str())
+        .and_then(|x| Some(html_escape::encode_safe(x)))
         .and_then(|x| Some(format!(" filename=\"{x}\"")))
         .unwrap_or_default();
 
+      let id = html_escape::encode_safe(id);
       let text = format!("<a href=\"{id}\"{filename_attr} download>{id}</a>");
       text
     }
@@ -1147,6 +1181,8 @@ fn media_inline_to_html_string(media_inline_item: &Map<String, Value>, db_conn: 
       let base64_data = base64::engine::general_purpose::STANDARD.encode(file_data.data);
       let mime_type = file_data.mime_type;
       let filename = file_data.filename;
+      let mime_type = html_escape::encode_safe(mime_type.as_str());
+      let filename = html_escape::encode_safe(filename.as_str());
       let text = format!("<a href=\"data:{mime_type};base64,{base64_data}\" download=\"{filename}\">{filename}</a>");
       text
     }
@@ -1154,9 +1190,11 @@ fn media_inline_to_html_string(media_inline_item: &Map<String, Value>, db_conn: 
       let filename_attr = attrs
         .get("alt")
         .and_then(|x| x.as_str())
+        .and_then(|x| Some(html_escape::encode_safe(x)))
         .and_then(|x| Some(format!(" filename=\"{x}\"")))
         .unwrap_or_default();
 
+      let id = html_escape::encode_safe(id);
       let text = format!("<a href=\"{id}\"{filename_attr} download>{id}</a>");
       text
     }
@@ -1202,6 +1240,7 @@ fn inline_card_to_html_string(inline_card: &Map<String, Value>) -> StringWithNod
       // the link above says that url must be a json object, but the provided
       // example displays url as a json string
       if let Some(url) = url.as_str() {
+        let url = html_escape::encode_safe(url);
         format!("<a href=\"{url}\">{url}</a>")
       } else if let Some(url_as_object) = url.as_object() {
         json_map_to_html_string(url_as_object)
@@ -1218,6 +1257,8 @@ fn inline_card_to_html_string(inline_card: &Map<String, Value>) -> StringWithNod
       match data.as_object() {
         None => {
           eprintln!("Invalid InlineCard found. 'attrs' contains a 'data' attributes, but it is not a json object");
+          let data = format!("{data}");
+          let data = html_escape::encode_safe(data.as_str());
           format!("<verbatim>{data}</verbatim>")
         },
         Some(data_as_object) => {
@@ -1313,7 +1354,7 @@ fn value_to_html_string(json: &JsonValue, db_conn: &Pool<Sqlite>) -> StringWithN
     Value::Null => to_inline(String::from("null")),
     Value::Bool(n) => to_inline(n.to_string()), // String::from(n),
     Value::Number(n) => to_inline(n.to_string()), // String::from(n),
-    Value::String(n) => to_inline(String::from(n)),
+    Value::String(s) => string_to_sanitised_inline(s),
     Value::Array(n) => array_of_value_to_html_string(n, db_conn),
     Value::Object(o) => object_to_html_string(o, db_conn),
   }
