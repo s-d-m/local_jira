@@ -594,7 +594,8 @@ fn ordered_list_to_html_string(json: &Map<String, Value>, db_conn: &Pool<Sqlite>
 
   let content = content
     .into_iter()
-    .map(|x| root_elt_doc_to_html_string(x, db_conn))
+    .map(|x| value_to_html_string(x, db_conn))
+    .map(|x| x.text)
     .reduce(|a, b| format!("{a}\n{b}"))
     .unwrap_or_default();
 
