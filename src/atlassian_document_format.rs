@@ -395,7 +395,8 @@ fn ordered_list_to_string(json: &Map<String, Value>) -> StringWithNodeLevel {
 
     let content = content
         .into_iter()
-        .map(|x| root_elt_doc_to_string(x))
+        .map(|x| value_to_string(x))
+        .map(|x| x.text)
         .collect::<Vec<_>>();
 
     let content = content
