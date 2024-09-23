@@ -120,6 +120,9 @@ fn format_links_for_html(inward_links: &[Relations], outward_links: &[Relations]
         None => { "" }
         Some(a) => { a.as_str() }
       };
+      let relation = html_escape::encode_safe(relation);
+      let other_key = html_escape::encode_safe(other_key);
+      let summary = html_escape::encode_safe(summary);
       format!(
 "<div class=\"link\">
   <div class=\"relation\">{relation}</div>
@@ -141,6 +144,9 @@ fn format_comments_for_html(comments: &[Comment], db_conn: &Pool<Sqlite>) -> Str
       let creation = &x.creation_time;
       let last_modification = &x.last_modification;
       let data = root_elt_doc_to_html_string(&x.data, &db_conn);
+      let author = html_escape::encode_safe(author);
+      let creation = html_escape::encode_safe(creation);
+      let last_modification = html_escape::encode_safe(last_modification);
       format!(
 "<div class=\"comment\">
   <div class=\"comment_author\">comment author: {author}</div>
@@ -159,6 +165,12 @@ fn get_summary<'a>(hashed_system_fields: &HashMap<&str, &'a Field>) -> &'a str {
     .and_then(|x| x.value.as_str())
     .unwrap_or("no summary provided");
 
+  summary
+}
+
+fn get_html_summary<'a>(hashed_system_fields: &HashMap<&str, &'a Field>) -> std::borrow::Cow<'a, str> {
+  let summary = get_summary(hashed_system_fields);
+  let summary = html_escape::encode_safe(summary);
   summary
 }
 
@@ -191,7 +203,7 @@ fn format_ticket_for_html(issue_key: &str,
     .map(|x| (x.name.as_str(), x))
     .collect::<HashMap<_, &Field>>();
 
-  let summary = get_summary(&hashed_system_fields);
+  let summary = get_html_summary(&hashed_system_fields);
   let description = get_html_description(&hashed_system_fields, db_conn);
 
   let links_str = format_links_for_html(inward_links.as_ref(),
