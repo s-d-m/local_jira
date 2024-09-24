@@ -1,6 +1,8 @@
 LOCAL_JIRA
 =====
 
+![logo](./docs/logo.svg)
+
 Local_jira is a project I started to scratch an itch I had.
 
 At work we use [jira](https://www.atlassian.com/software/jira) as an issue tracker.
