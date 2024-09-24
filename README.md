@@ -22,3 +22,9 @@ interest for a user.
 The documentation for `Local_jira` itself is available [here](https://s-d-m.codeberg.page/local_jira/)
 
 
+
+### Note
+
+Flames on the logo are from [freepik.com](https://www.freepik.com/free-vector/hand-drawn-fire-cartoon-illustration_49545933.htm)
+
+Jira logo is from [Atlassian](https://atlassian.design/resources/logo-library)
